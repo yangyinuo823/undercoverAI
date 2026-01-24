@@ -1,0 +1,5 @@
+{
+  "name": "Undercover Social Deduction Game",
+  "description": "A 4-player social deduction game where Player_4 is an AI, trying to blend in as a Civilian or Undercover. Players describe their secret word and then vote to find the imposter.",
+  "requestFramePermissions": []
+}
