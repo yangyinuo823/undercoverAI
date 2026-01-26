@@ -25,6 +25,8 @@ export enum GamePhase {
   DESCRIPTION = 'description',
   VOTING = 'voting',
   RESULTS = 'results',
+  AI_GUESS = 'ai_guess',
+  FINAL_RESULTS = 'final_results',
 }
 
 export interface ChatMessage {
