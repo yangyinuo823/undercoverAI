@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Room Test</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; }
+    .section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 8px; }
+    input, button { padding: 10px; margin: 5px; font-size: 14px; }
+    button { cursor: pointer; background: #4CAF50; color: white; border: none; border-radius: 4px; }
+    button:hover { background: #45a049; }
+    #log { background: #f5f5f5; padding: 10px; height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+    .log-entry { margin: 2px 0; }
+    .success { color: green; }
+    .error { color: red; }
+    .info { color: blue; }
+  </style>
+</head>
+<body>
+  <h1>Room Management Test</h1>
+  
+  <div class="section">
+    <h3>Connection Status: <span id="status">Disconnected</span></h3>
+  </div>
+
+  <div class="section">
+    <h3>Your Name</h3>
+    <input type="text" id="playerName" placeholder="Enter your name" value="TestPlayer">
+  </div>
+
+  <div class="section">
+    <h3>Create Room</h3>
+    <button onclick="createRoom()">Create New Room</button>
+  </div>
+
+  <div class="section">
+    <h3>Join Room</h3>
+    <input type="text" id="roomCode" placeholder="Enter room code">
+    <button onclick="joinRoom()">Join Room</button>
+  </div>
+
+  <div class="section">
+    <h3>Current Room: <span id="currentRoom">None</span></h3>
+    <p>Players: <span id="playerList">-</span></p>
+    <p>Waiting for: <span id="playersNeeded">-</span> more player(s)</p>
+  </div>
+
+  <div class="section">
+    <h3>Event Log</h3>
+    <div id="log"></div>
+  </div>
+
+  <script>
+    const socket = io('http://localhost:3001');
+    
+    function log(message, type = 'info') {
+      const logDiv = document.getElementById('log');
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      logDiv.appendChild(entry);
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    // Connection events
+    socket.on('connect', () => {
+      document.getElementById('status').textContent = 'Connected ✓';
+      document.getElementById('status').style.color = 'green';
+      log('Connected to server', 'success');
+    });
+
+    socket.on('disconnect', () => {
+      document.getElementById('status').textContent = 'Disconnected ✗';
+      document.getElementById('status').style.color = 'red';
+      log('Disconnected from server', 'error');
+    });
+
+    // Room events
+    socket.on('room-created', (data) => {
+      log(`Room created: ${data.roomCode}`, 'success');
+      updateRoomInfo(data);
+    });
+
+    socket.on('player-joined', (data) => {
+      log(`Player joined! Room: ${data.roomCode}, Players: ${data.players.length}/3`, 'success');
+      updateRoomInfo(data);
+    });
+
+    socket.on('waiting-for-players', (data) => {
+      log(`Waiting for ${data.playersNeeded} more player(s)...`, 'info');
+      updateRoomInfo(data);
+    });
+
+    socket.on('room-ready', (data) => {
+      log(`Room ${data.roomCode} is FULL! Ready to start!`, 'success');
+      updateRoomInfo({ ...data, playersNeeded: 0 });
+    });
+
+    socket.on('player-left', (data) => {
+      log(`A player left. Now ${data.players.length}/3 players`, 'info');
+      updateRoomInfo(data);
+    });
+
+    socket.on('join-error', (data) => {
+      log(`Join error: ${data.error}`, 'error');
+    });
+
+    function updateRoomInfo(data) {
+      document.getElementById('currentRoom').textContent = data.roomCode || 'None';
+      document.getElementById('playerList').textContent = data.players 
+        ? data.players.map(p => p.name).join(', ') 
+        : '-';
+      document.getElementById('playersNeeded').textContent = data.playersNeeded ?? '-';
+    }
+
+    function createRoom() {
+      const name = document.getElementById('playerName').value || 'Player';
+      log(`Creating room as "${name}"...`);
+      socket.emit('create-room', name);
+    }
+
+    function joinRoom() {
+      const name = document.getElementById('playerName').value || 'Player';
+      const code = document.getElementById('roomCode').value.toUpperCase();
+      if (!code) {
+        log('Please enter a room code', 'error');
+        return;
+      }
+      log(`Joining room ${code} as "${name}"...`);
+      socket.emit('join-room', { roomCode: code, playerName: name });
+    }
+  </script>
+</body>
+</html>
