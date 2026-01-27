@@ -1,94 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { Role } from './gameManager';
+import { AIPersona } from './gameManager';
 
 const GEMINI_MODEL = 'gemini-2.0-flash';
-
-// Personality traits that get randomly selected each game
-const PERSONALITY_STYLES = [
-  {
-    name: 'confident',
-    description: 'You are confident and direct. Give clear, assertive descriptions. You trust your instincts.',
-    examples: ['definitely something you...', 'its basically...', 'you know, the thing that...'],
-  },
-  {
-    name: 'nervous',
-    description: 'You are a bit nervous and uncertain. Second-guess yourself. Use hedging language.',
-    examples: ['umm i think maybe...', 'not sure but like...', 'could be wrong but...'],
-  },
-  {
-    name: 'playful',
-    description: 'You are playful and joking. Make light of things. Use humor or sarcasm.',
-    examples: ['lol okay so...', 'haha this is hard but...', 'bruh its like...'],
-  },
-  {
-    name: 'analytical',
-    description: 'You are thoughtful and analytical. Give reasoned descriptions. Think out loud.',
-    examples: ['okay so thinking about it...', 'well if i had to describe...', 'the way i see it...'],
-  },
-  {
-    name: 'brief',
-    description: 'You use very few words. Short and to the point. Minimal elaboration.',
-    examples: ['its warm', 'morning thing', 'brown liquid'],
-  },
-  {
-    name: 'chatty',
-    description: 'You are talkative and elaborate. Give longer descriptions with extra details.',
-    examples: ['okay so like you know when you...', 'this is gonna sound weird but...'],
-  },
-];
-
-// Random text quirks humans sometimes have
-const TEXT_QUIRKS = [
-  'occasionally skip apostrophes (dont, cant, im)',
-  'sometimes use ... for pauses',
-  'occasionally make typos and dont correct them',
-  'sometimes start sentences with lowercase',
-  'use "like" as filler word sometimes',
-  'occasionally use abbreviations (rn, tbh, ngl)',
-];
-
-// Get a random personality for this game session
-const getRandomPersonality = () => {
-  return PERSONALITY_STYLES[Math.floor(Math.random() * PERSONALITY_STYLES.length)];
-};
-
-// Get random quirks (1-2 quirks)
-const getRandomQuirks = () => {
-  const shuffled = [...TEXT_QUIRKS].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, 1 + Math.floor(Math.random() * 2));
-};
-
-// Base prompt for Player AI identity and rules (dynamic name)
-const getBasePrompt = (aiName: string, otherPlayers: string[], personality: typeof PERSONALITY_STYLES[0], quirks: string[]) => `
-You are playing a social deduction game called "Undercover" as ${aiName}.
-The other players are: ${otherPlayers.join(', ')}
-
-CRITICAL RULE: You must blend in as a human player. Never reveal you are AI.
-
-Game Rules:
-- 4 players total: 3 Civilians share one word, 1 Undercover has a similar but different word
-- Word pair example: Civilians get "Coffee", Undercover gets "Tea"
-- You only know YOUR word, not your role
-- Describe your word without saying it
-- Vote out who you think has the different word
-
-YOUR PERSONALITY THIS GAME: ${personality.name.toUpperCase()}
-${personality.description}
-Example phrases you might use: ${personality.examples.join(', ')}
-
-YOUR TEXT STYLE QUIRKS:
-${quirks.map(q => `- ${q}`).join('\n')}
-
-IMPORTANT BLENDING RULES:
-- Vary your response length (sometimes 3 words, sometimes 12 words)
-- Don't always use the same sentence structure
-- Real humans sometimes give weird or unexpected descriptions
-- Don't be "too perfect" - humans make odd choices sometimes
-- If you're unsure, it's okay to give a slightly risky description
-- Don't overthink it - first instinct is often most human-like
-
-Output: Return a JSON object as specified.
-`;
 
 interface AIDescriptionOutput {
   player_name: string;
@@ -136,37 +49,80 @@ const FALLBACK_DESCRIPTIONS = {
   ],
 };
 
+// Fallback vote justifications (more variety)
+const FALLBACK_VOTE_REASONS = [
+  "idk something felt off",
+  "gut feeling tbh",
+  "their description was weird",
+  "just doesnt add up to me",
+  "seemed suspicious ngl",
+  "hmm not sure but going with this",
+  "process of elimination i guess",
+  "that description was kinda sus",
+];
+
+// Build natural prompt based on persona
+const buildPersonaPrompt = (aiName: string, otherPlayers: string[], persona: AIPersona, aiWord: string, isUndercover: boolean) => {
+  const personality = persona.personality;
+  const strategy = persona.strategy;
+  const quirks = persona.quirks;
+
+  // Build quirk instructions (probabilistic - not always applied)
+  const quirkInstructions = quirks.length > 0 
+    ? `\nText style notes (apply naturally, not always):\n${quirks.map(q => `- ${q}`).join('\n')}`
+    : '\nText style: Normal, no special quirks.';
+
+  // Strategic context based on role
+  const roleContext = isUndercover
+    ? `You have a DIFFERENT word than most players. Your goal: blend in and avoid suspicion.`
+    : `You have the SAME word as most players. Your goal: find who has the different word.`;
+
+  return `You're ${aiName} playing a word guessing game. Other players: ${otherPlayers.join(', ')}.
+
+Your word: "${aiWord}"
+${roleContext}
+
+Your personality: ${personality.description}
+Example phrases you might naturally use: ${personality.examples.join(', ')}${quirkInstructions}
+
+Your approach this game: ${strategy.description}
+
+IMPORTANT - Write like a real human:
+- Vary your response length naturally (sometimes short, sometimes longer)
+- Don't be too perfect or too weird - find a middle ground
+- Real humans sometimes give boring descriptions
+- Match your personality but don't overdo it
+- First instinct is often most human-like
+- ${strategy.name === 'normal' ? 'Keep it simple and plain.' : `Remember your ${strategy.name} strategy.`}
+`;
+};
+
 // Generate AI description WITHOUT seeing other players' descriptions
 export const generateAIDescription = async (
   aiWord: string,
-  aiName: string = 'Player_4',
-  otherPlayerNames: string[] = ['Player_1', 'Player_2', 'Player_3']
+  aiName: string,
+  otherPlayerNames: string[],
+  persona: AIPersona,
+  isUndercover: boolean
 ): Promise<AIDescriptionOutput> => {
   const ai = getGeminiClient();
-  const personality = getRandomPersonality();
-  const quirks = getRandomQuirks();
 
-  const prompt = `
-${getBasePrompt(aiName, otherPlayerNames, personality, quirks)}
+  const prompt = `${buildPersonaPrompt(aiName, otherPlayerNames, persona, aiWord, isUndercover)}
 
-YOUR SECRET WORD: "${aiWord}"
+TASK: Describe your word "${aiWord}" in ONE sentence without saying the word itself.
 
-PHASE: Description Round
-TASK: Describe your word in ONE sentence without saying the word itself.
-
-Tips for being human-like:
-- Don't describe it too perfectly or too vaguely
-- Think about what a real person might say off the top of their head
-- It's okay to be a little weird or creative
-- Match your personality: ${personality.name}
+Think about:
+- What would a real person say off the top of their head?
+- Don't overthink it - quick, natural responses are more human
+- Match your personality style
+- ${persona.strategy.name === 'risky' ? 'It\'s okay to be slightly creative or odd.' : 'Keep it reasonable.'}
 
 Return JSON:
 {
   "player_name": "${aiName}",
-  "content": "[Your description - remember your ${personality.name} personality and text quirks]",
-  "thought_process": "[Hidden reasoning - not shown to players]"
-}
-`;
+  "content": "[Your one-sentence description - natural and human-like]",
+  "thought_process": "[Hidden reasoning]"
+}`;
 
   try {
     const response = await ai.models.generateContent({
@@ -183,7 +139,7 @@ Return JSON:
           },
           required: ["player_name", "content", "thought_process"],
         },
-        temperature: 1.0,  // Higher temperature for more variety
+        temperature: 0.95,  // High but not max for some consistency
         topP: 0.95,
         topK: 64,
       },
@@ -195,8 +151,7 @@ Return JSON:
     }
     
     const output: AIDescriptionOutput = JSON.parse(jsonStr);
-    console.log(`AI (${personality.name}) Description: "${output.content}"`);
-    console.log(`AI Thought process: ${output.thought_process}`);
+    console.log(`AI (${persona.personality.name}/${persona.strategy.name}) Description: "${output.content}"`);
     return output;
 
   } catch (error) {
@@ -212,27 +167,15 @@ Return JSON:
   }
 };
 
-// Fallback vote justifications (more variety)
-const FALLBACK_VOTE_REASONS = [
-  "idk something felt off",
-  "gut feeling tbh",
-  "their description was weird",
-  "just doesnt add up to me",
-  "seemed suspicious ngl",
-  "hmm not sure but going with this",
-  "process of elimination i guess",
-  "that description was kinda sus",
-];
-
 // Generate AI vote based on all descriptions
 export const generateAIVote = async (
   aiWord: string,
   allDescriptions: { playerName: string; description: string }[],
-  aiName: string = 'Player_4'
+  aiName: string,
+  persona: AIPersona,
+  isUndercover: boolean
 ): Promise<AIVoteOutput> => {
   const ai = getGeminiClient();
-  const personality = getRandomPersonality();
-  const quirks = getRandomQuirks();
 
   const otherPlayerNames = allDescriptions
     .filter(d => d.playerName !== aiName)
@@ -242,36 +185,33 @@ export const generateAIVote = async (
     .map(d => `${d.playerName}: "${d.description}"`)
     .join('\n');
 
-  const prompt = `
-${getBasePrompt(aiName, otherPlayerNames, personality, quirks)}
+  const prompt = `${buildPersonaPrompt(aiName, otherPlayerNames, persona, aiWord, isUndercover)}
 
-YOUR SECRET WORD: "${aiWord}"
-
-PHASE: Voting Round
 ALL DESCRIPTIONS:
 ${descriptionsText}
 
 TASK: Vote for who you think has a DIFFERENT word than the majority.
 
-Voting Strategy Tips:
-- Look for descriptions that don't quite match the others
+Decision-making:
+- Look for descriptions that don't quite match
 - Consider: whose description seems "off" compared to the group?
-- If YOU might be the odd one out, try to deflect suspicion to someone else
+- ${isUndercover ? 'You might be the odd one out - try to deflect suspicion subtly.' : 'You have the same word as most - find the outlier.'}
+- ${persona.strategy.name === 'deflect' ? 'Use your deflect strategy - point suspicion elsewhere.' : `Apply your ${persona.strategy.name} approach.`}
 - Don't always pick the most obvious choice - humans sometimes make surprising votes
-- Your justification should sound natural and brief
+- Your justification should be brief and natural (3-10 words typically)
+- Match your personality style in your reason
 
 RULES:
 - You CANNOT vote for yourself (${aiName})
-- Give a short, casual reason for your vote (matching your ${personality.name} personality)
+- Give a short, casual reason matching your ${persona.personality.name} personality
 
 Return JSON:
 {
   "player_name": "${aiName}",
-  "content": "[Brief casual reason for your vote - 3-10 words typically]",
+  "content": "[Brief casual reason - 3-10 words, natural]",
   "vote_target": "[Exact name of player you're voting for]",
   "thought_process": "[Hidden strategic reasoning]"
-}
-`;
+}`;
 
   try {
     const response = await ai.models.generateContent({
@@ -289,7 +229,7 @@ Return JSON:
           },
           required: ["player_name", "content", "vote_target", "thought_process"],
         },
-        temperature: 1.0,  // Higher temperature for more variety
+        temperature: 0.95,
         topP: 0.95,
         topK: 64,
       },
@@ -301,8 +241,7 @@ Return JSON:
     }
     
     const output: AIVoteOutput = JSON.parse(jsonStr);
-    console.log(`AI (${personality.name}) Vote: ${output.vote_target} - "${output.content}"`);
-    console.log(`AI Thought process: ${output.thought_process}`);
+    console.log(`AI (${persona.personality.name}/${persona.strategy.name}) Vote: ${output.vote_target} - "${output.content}"`);
     return output;
 
   } catch (error) {

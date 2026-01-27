@@ -27,6 +27,19 @@ export interface GamePlayer {
   hasVoted: boolean;
 }
 
+export interface AIPersona {
+  personality: {
+    name: string;
+    description: string;
+    examples: string[];
+  };
+  quirks: string[];
+  strategy: {
+    name: string;
+    description: string;
+  };
+}
+
 export interface GameState {
   roomCode: string;
   phase: GamePhase;
@@ -34,6 +47,7 @@ export interface GameState {
   aiPlayerId: string;
   civilianWord: string;
   undercoverWord: string;
+  aiPersona?: AIPersona;  // Persistent AI personality for this game
   // Results tracking
   eliminatedPlayerId?: string;
   civiliansWon?: boolean;
@@ -100,6 +114,46 @@ function getRandomNames(count: number): string[] {
   return shuffled.slice(0, count);
 }
 
+// AI Personality and Strategy definitions
+const PERSONALITY_STYLES = [
+  { name: 'confident', description: 'Confident and direct. Clear, assertive responses.', examples: ['definitely', 'its basically', 'you know'] },
+  { name: 'nervous', description: 'A bit uncertain. Uses hedging language.', examples: ['umm maybe', 'not sure but', 'could be wrong'] },
+  { name: 'playful', description: 'Playful and joking. Uses humor.', examples: ['lol', 'haha', 'bruh'] },
+  { name: 'analytical', description: 'Thoughtful and analytical. Reasons things out.', examples: ['thinking about it', 'if i had to describe', 'the way i see it'] },
+  { name: 'brief', description: 'Very few words. Short and to the point.', examples: ['its warm', 'morning thing'] },
+  { name: 'normal', description: 'Plain and straightforward. No strong personality.', examples: ['its like', 'kind of', 'i guess'] },
+];
+
+const TEXT_QUIRKS = [
+  'skip apostrophes sometimes (dont, cant)',
+  'use ... for pauses occasionally',
+  'make small typos rarely',
+  'start sentences lowercase sometimes',
+  'use filler words (like, um)',
+  'use abbreviations rarely (tbh, ngl)',
+];
+
+const STRATEGY_STYLES = [
+  { name: 'mirror', description: 'Try to match the majority style. Blend in by being similar to others.' },
+  { name: 'deflect', description: 'If you might be suspicious, deflect attention to others subtly.' },
+  { name: 'overthink', description: 'Give slightly overthought descriptions. Show you\'re trying hard.' },
+  { name: 'underthink', description: 'Give simple, off-the-cuff responses. Act casual.' },
+  { name: 'risky', description: 'Take calculated risks. Sometimes give slightly odd descriptions.' },
+  { name: 'safe', description: 'Play it safe. Give generic, inoffensive descriptions.' },
+];
+
+function generateAIPersona(): AIPersona {
+  const personality = PERSONALITY_STYLES[Math.floor(Math.random() * PERSONALITY_STYLES.length)];
+  const strategy = STRATEGY_STYLES[Math.floor(Math.random() * STRATEGY_STYLES.length)];
+  
+  // Pick 0-2 quirks (not always applied - probabilistic)
+  const shuffledQuirks = [...TEXT_QUIRKS].sort(() => Math.random() - 0.5);
+  const numQuirks = Math.floor(Math.random() * 3); // 0, 1, or 2 quirks
+  const quirks = shuffledQuirks.slice(0, numQuirks);
+  
+  return { personality, quirks, strategy };
+}
+
 class GameManager {
   private games: Map<string, GameState> = new Map(); // roomCode -> GameState
 
@@ -159,6 +213,9 @@ class GameManager {
       hasVoted: false,
     });
 
+    // Generate AI persona for this game (persists across all AI actions)
+    const aiPersona = generateAIPersona();
+
     const gameState: GameState = {
       roomCode,
       phase: GamePhase.DESCRIPTION,
@@ -166,6 +223,7 @@ class GameManager {
       aiPlayerId: AI_PLAYER_ID,
       civilianWord: CIVILIAN_WORD,
       undercoverWord: UNDERCOVER_WORD,
+      aiPersona,
       aiGuesses: new Map(),
       aiGuessWinners: [],
     };
@@ -174,6 +232,7 @@ class GameManager {
     
     console.log(`Game started for room ${roomCode}`);
     console.log(`AI (${aiName}) is ${aiRole} with word "${aiRole === Role.CIVILIAN ? CIVILIAN_WORD : UNDERCOVER_WORD}"`);
+    console.log(`AI Persona: ${aiPersona.personality.name}, Strategy: ${aiPersona.strategy.name}, Quirks: ${aiPersona.quirks.length}`);
     
     return gameState;
   }
@@ -220,6 +279,13 @@ class GameManager {
     const game = this.games.get(roomCode);
     if (!game) return null;
     return game.players.get(AI_PLAYER_ID) || null;
+  }
+
+  // Get AI persona for this game
+  getAIPersona(roomCode: string): AIPersona | null {
+    const game = this.games.get(roomCode);
+    if (!game || !game.aiPersona) return null;
+    return game.aiPersona;
   }
 
   // Submit description for a player
@@ -524,3 +590,4 @@ class GameManager {
 
 export const gameManager = new GameManager();
 export { AI_PLAYER_ID, CIVILIAN_WORD, UNDERCOVER_WORD };
+export type { AIPersona };

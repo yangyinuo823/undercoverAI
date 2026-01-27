@@ -5,7 +5,7 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import path from 'path';
 import { roomManager } from './roomManager';
-import { gameManager, GamePhase, AI_PLAYER_ID } from './gameManager';
+import { gameManager, GamePhase, AI_PLAYER_ID, Role } from './gameManager';
 import { generateAIDescription, generateAIVote } from './geminiService';
 
 const app = express();
@@ -208,8 +208,23 @@ io.on('connection', (socket) => {
               .filter(p => p.id !== AI_PLAYER_ID)
               .map(p => p.name);
             
+            // Get AI persona (consistent across game)
+            const aiPersona = gameManager.getAIPersona(roomCode);
+            if (!aiPersona) {
+              console.error('AI persona not found for room', roomCode);
+              io.to(roomCode).emit('game-error', { error: 'AI configuration error' });
+              return;
+            }
+            
             // AI generates description WITHOUT seeing human descriptions
-            const aiResponse = await generateAIDescription(aiPlayer.word, aiPlayer.name, otherPlayerNames);
+            const isUndercover = aiPlayer.role === Role.UNDERCOVER;
+            const aiResponse = await generateAIDescription(
+              aiPlayer.word, 
+              aiPlayer.name, 
+              otherPlayerNames,
+              aiPersona,
+              isUndercover
+            );
             
             // Submit AI's description
             gameManager.submitDescription(roomCode, AI_PLAYER_ID, aiResponse.content);
@@ -308,11 +323,22 @@ io.on('connection', (socket) => {
         
         if (aiPlayer) {
           try {
+            // Get AI persona (consistent across game)
+            const aiPersona = gameManager.getAIPersona(roomCode);
+            if (!aiPersona) {
+              console.error('AI persona not found for room', roomCode);
+              io.to(roomCode).emit('game-error', { error: 'AI configuration error' });
+              return;
+            }
+            
             // AI generates vote based on descriptions
+            const isUndercover = aiPlayer.role === Role.UNDERCOVER;
             const aiVoteResponse = await generateAIVote(
               aiPlayer.word,
               allDescriptions.map(d => ({ playerName: d.playerName, description: d.description })),
-              aiPlayer.name  // Pass AI's actual name
+              aiPlayer.name,
+              aiPersona,
+              isUndercover
             );
             
             // Find the player ID from the player name AI voted for
