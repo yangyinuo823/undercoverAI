@@ -16,6 +16,12 @@ interface AIVoteOutput {
   thought_process: string;
 }
 
+export interface AIDiscussionOutput {
+  player_name: string;
+  content: string;
+  thought_process: string;
+}
+
 // Get Gemini client
 const getGeminiClient = () => {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -97,23 +103,54 @@ IMPORTANT - Write like a real human:
 `;
 };
 
-// Generate AI description WITHOUT seeing other players' descriptions
+// Turn position: 0 = first, 1-2 = middle, 3 = last
+export type TurnPosition = 'first' | 'middle' | 'last';
+
+// Generate AI description (turn-based: first = blind, middle = sees previous, last = sees previous + no-copying rule)
 export const generateAIDescription = async (
   aiWord: string,
   aiName: string,
   otherPlayerNames: string[],
   persona: AIPersona,
-  isUndercover: boolean
+  isUndercover: boolean,
+  turnIndex: number,
+  previousDescriptions: { playerName: string; description: string }[]
 ): Promise<AIDescriptionOutput> => {
   const ai = getGeminiClient();
 
+  const position: TurnPosition = turnIndex === 0 ? 'first' : turnIndex === 3 ? 'last' : 'middle';
+  const hasPrevious = previousDescriptions.length > 0;
+  const previousText = hasPrevious
+    ? previousDescriptions.map(d => `${d.playerName}: "${d.description}"`).join('\n')
+    : '';
+
+  let taskSection: string;
+  if (position === 'first') {
+    taskSection = `TASK: Describe your word "${aiWord}" in ONE sentence without saying the word itself.
+You are going FIRST - you have not seen anyone else's description yet.
+Think about: What would a real person say off the top of their head? Don't overthink it.`;
+  } else if (position === 'last') {
+    taskSection = `TASK: Describe your word "${aiWord}" in ONE sentence without saying the word itself.
+
+DESCRIPTIONS SO FAR (you are going LAST - everyone else has already spoken):
+${previousText}
+
+STRICT RULES (you are last - do NOT sound like you copied):
+- You MUST NOT repeat phrases, wording, or sentence structure from the descriptions above.
+- Sound like a different person. Vary your sentence structure and word choice.
+- Do NOT paraphrase or echo what others said. Give a description that fits your word but feels DISTINCT from what's already been said.`;
+  } else {
+    taskSection = `TASK: Describe your word "${aiWord}" in ONE sentence without saying the word itself.
+
+DESCRIPTIONS SO FAR (you are in the middle - these players have already spoken):
+${previousText}
+
+You can use context to blend in, but write in your own words. Match your personality.`;
+  }
+
   const prompt = `${buildPersonaPrompt(aiName, otherPlayerNames, persona, aiWord, isUndercover)}
 
-TASK: Describe your word "${aiWord}" in ONE sentence without saying the word itself.
-
-Think about:
-- What would a real person say off the top of their head?
-- Don't overthink it - quick, natural responses are more human
+${taskSection}
 - Match your personality style
 - ${persona.strategy.name === 'risky' ? 'It\'s okay to be slightly creative or odd.' : 'Keep it reasonable.'}
 
@@ -255,6 +292,120 @@ Return JSON:
       content: randomReason,
       vote_target: randomTarget,
       thought_process: "API call failed, using random vote.",
+    };
+  }
+};
+
+// Fallback discussion lines (short, casual)
+const FALLBACK_DISCUSSION_CIVILIAN = [
+  "i think someone's description was off",
+  "not sure who but one felt different",
+  "leaning towards voting one of them",
+];
+const FALLBACK_DISCUSSION_UNDERCOVER = [
+  "could be any of us tbh",
+  "lets just vote and see",
+  "i dont have a strong read",
+];
+
+// Generate AI discussion message (civilian: detection; undercover: mislead). Returns empty content to stay silent.
+export const generateAIDiscussionMessage = async (
+  aiWord: string,
+  aiName: string,
+  otherPlayerNames: string[],
+  persona: AIPersona,
+  isUndercover: boolean,
+  allDescriptions: { playerName: string; description: string }[],
+  discussionTranscript: { playerName: string; message: string }[]
+): Promise<AIDiscussionOutput> => {
+  const ai = getGeminiClient();
+
+  const personality = persona.personality;
+  const quirkInstructions = persona.quirks.length > 0
+    ? `\nText style notes (apply naturally):\n${persona.quirks.map(q => `- ${q}`).join('\n')}`
+    : '';
+
+  const descriptionsText = allDescriptions
+    .map(d => `${d.playerName}: "${d.description}"`)
+    .join('\n');
+  const discussionText = discussionTranscript.length > 0
+    ? discussionTranscript.map(d => `${d.playerName}: ${d.message}`).join('\n')
+    : '(No messages yet.)';
+
+  const roleInstruction = isUndercover
+    ? `You have a DIFFERENT word (Undercover). Goal: blend in and mislead — create doubt, deflect suspicion, point at others, or add harmless noise. Do NOT reveal your word.`
+    : `You have the SAME word as most (Civilian). Goal: share who you think has the different word and why, briefly.`;
+
+  const taskRules = isUndercover
+    ? 'Mislead: suggest someone else is suspicious, or say something vague that doesn\'t give away your word. No long speeches.'
+    : 'Give your read: who seems off and why in one line. Don\'t over-explain.';
+
+  const prompt = `You're ${aiName} in a word-guessing game. Other players: ${otherPlayerNames.join(', ')}.
+
+Your word: "${aiWord}"
+Your role: ${roleInstruction}
+
+DESCRIPTIONS (what everyone said in order):
+${descriptionsText}
+
+DISCUSSION SO FAR (free chat before voting):
+${discussionText}
+
+Your personality: ${personality.description}
+Examples: ${personality.examples.join(', ')}${quirkInstructions}
+
+RULES:
+- Write ONE short message (1–2 sentences, under 100 chars). Casual, like real chat.
+- ${taskRules}
+- If you would naturally stay silent (e.g. nothing to add yet), return content as empty string "".
+- Match your personality; vary length. No bullet points or formal tone.
+
+Return JSON only:
+{
+  "player_name": "${aiName}",
+  "content": "[Your one short chat line, or \"\" if you stay silent]",
+  "thought_process": "[Hidden reasoning]"
+}`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            player_name: { type: Type.STRING },
+            content: { type: Type.STRING },
+            thought_process: { type: Type.STRING },
+          },
+          required: ["player_name", "content", "thought_process"],
+        },
+        temperature: 0.9,
+        topP: 0.95,
+        topK: 64,
+      },
+    });
+
+    const jsonStr = response.text?.trim();
+    if (!jsonStr) {
+      throw new Error("Empty response from Gemini API.");
+    }
+
+    const output: AIDiscussionOutput = JSON.parse(jsonStr);
+    if (output.content && output.content.trim()) {
+      console.log(`AI (${persona.personality.name}) Discussion: "${output.content}"`);
+    }
+    return output;
+  } catch (error) {
+    console.error("Error calling Gemini API for discussion:", error);
+    const pool = isUndercover ? FALLBACK_DISCUSSION_UNDERCOVER : FALLBACK_DISCUSSION_CIVILIAN;
+    const msg = pool[Math.floor(Math.random() * pool.length)];
+    return {
+      player_name: aiName,
+      content: msg,
+      thought_process: "API call failed, using fallback.",
     };
   }
 };

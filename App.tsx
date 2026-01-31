@@ -32,11 +32,28 @@ const shuffleWithSeed = <T,>(array: T[], seed: string): T[] => {
 };
 
 const App: React.FC = () => {
-  const { roomState, gameState, submitDescription, advanceToVoting, submitVote, advanceToAIGuess, submitAIGuess, skipAIGuess } = useSocket();
+  const { roomState, gameState, submitDescription, sendDiscussionMessage, advanceToVoting, submitVote, advanceToAIGuess, submitAIGuess, skipAIGuess } = useSocket();
   const [selectedVote, setSelectedVote] = useState<string | null>(null);
   const [selectedAIGuess, setSelectedAIGuess] = useState<string | null>(null);
   const [hasVoted, setHasVoted] = useState(false);
   const [hasGuessedAI, setHasGuessedAI] = useState(false);
+  const [discussionInput, setDiscussionInput] = useState('');
+  const [discussionSecondsLeft, setDiscussionSecondsLeft] = useState<number | null>(null);
+
+  // Countdown for discussion phase
+  useEffect(() => {
+    if (gameState.phase !== 'discussion' || gameState.discussionEndsAt == null) {
+      setDiscussionSecondsLeft(null);
+      return;
+    }
+    const update = () => {
+      const left = Math.max(0, Math.ceil((gameState.discussionEndsAt! - Date.now()) / 1000));
+      setDiscussionSecondsLeft(left);
+    };
+    update();
+    const t = setInterval(update, 1000);
+    return () => clearInterval(t);
+  }, [gameState.phase, gameState.discussionEndsAt]);
   
   // Memoize shuffled player order - consistent within a game session using room code as seed
   const shuffledPlayers = React.useMemo(() => {
@@ -526,49 +543,187 @@ const App: React.FC = () => {
     const allHumansSubmittedDescriptions = gameState.players.filter(p => p.id !== 'AI_PLAYER').every(p => p.hasSubmittedDescription);
     const myPlayer = gameState.players.find(p => p.id === gameState.myPlayerId);
     
-    // DESCRIPTION PHASE
+    // DESCRIPTION PHASE (turn-based)
     if (gameState.phase === 'description') {
+      const currentTurnPlayer = gameState.currentTurnPlayerId ? gameState.players.find(p => p.id === gameState.currentTurnPlayerId) : null;
+      const isMyTurn = gameState.currentTurnPlayerId === gameState.myPlayerId;
+      const amINext = gameState.nextTurnPlayerId === gameState.myPlayerId;
+
       return (
         <>
           <div className="mb-6 text-center">
-            <h3 className="text-2xl font-bold">Description Phase</h3>
+            <h3 className="text-2xl font-bold">Description Phase (turn-based)</h3>
             <p className="text-gray-600 dark:text-gray-400">
-              Describe your word without saying it directly. Press Enter to submit.
+              Each player describes their word in order. Wait for your turn.
             </p>
           </div>
 
-          {allHumansSubmittedDescriptions && !allDescriptionsRevealed && (
-            <div className="mb-4 p-3 bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 rounded-lg text-center animate-pulse">
-              All human players submitted. Waiting for the last player...
-            </div>
-          )}
-          
-          {allDescriptionsRevealed && (
-            <div className="mb-4 p-3 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded-lg text-center">
-              All descriptions revealed! Click below to proceed to voting.
-              <div className="mt-2">
-                <Button onClick={advanceToVoting}>Proceed to Voting</Button>
-              </div>
+          {/* Current turn / Next */}
+          <div className="mb-4 p-3 bg-gray-100 dark:bg-gray-700 rounded-lg flex flex-wrap items-center justify-center gap-4">
+            <span className="font-semibold">
+              Current turn: <span className="text-blue-600 dark:text-blue-400">{currentTurnPlayer?.name ?? '—'}</span>
+            </span>
+            {gameState.nextTurnPlayerId && (
+              <span className={amINext ? 'font-bold text-green-600 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}>
+                Next: {amINext ? 'You' : gameState.players.find(p => p.id === gameState.nextTurnPlayerId)?.name ?? '—'}
+              </span>
+            )}
+            {gameState.aiThinking && (
+              <span className="text-yellow-600 dark:text-yellow-400 animate-pulse">{currentTurnPlayer?.name ?? 'Someone'} is thinking...</span>
+            )}
+          </div>
+
+          {/* Transcript so far */}
+          {gameState.descriptionTranscript && gameState.descriptionTranscript.length > 0 && (
+            <div className="mb-4 p-3 bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+              <h4 className="font-bold mb-2">Descriptions so far:</h4>
+              <ol className="list-decimal list-inside space-y-1 text-gray-800 dark:text-gray-200">
+                {gameState.descriptionTranscript.map((entry, i) => (
+                  <li key={i}><span className="font-medium">{entry.playerName}:</span> &quot;{entry.description}&quot;</li>
+                ))}
+              </ol>
             </div>
           )}
 
+          {allDescriptionsRevealed && (
+            <div className="mb-4 p-3 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded-lg text-center">
+              All descriptions revealed! Discussion phase will start next.
+            </div>
+          )}
+
+          {/* Input only when it's your turn (and you're human) */}
+          {!allDescriptionsRevealed && isMyTurn && myPlayer && myPlayer.id !== 'AI_PLAYER' && !myPlayer.hasSubmittedDescription && (
+            <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900 rounded-lg border-2 border-blue-400">
+              <p className="font-bold mb-2">Your turn — describe your word (press Enter to submit):</p>
+              <InputField
+                placeholder="Describe your word without saying it..."
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const input = e.target as HTMLInputElement;
+                    if (input.value.trim()) submitDescription(input.value.trim());
+                  }
+                }}
+                className="w-full"
+              />
+            </div>
+          )}
+
+          {!allDescriptionsRevealed && !isMyTurn && !gameState.aiThinking && (
+            <div className="mb-4 p-3 text-center text-gray-600 dark:text-gray-400">
+              {amINext ? "You're next — get ready!" : `Waiting for ${currentTurnPlayer?.name ?? 'current player'}...`}
+            </div>
+          )}
+
+          {/* Player list (read-only during description) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {shuffledPlayers.map((player) => (
               <div key={player.id} className={`p-4 rounded-lg border-2 ${player.id === gameState.myPlayerId ? 'bg-blue-50 dark:bg-blue-900 border-blue-400' : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600'}`}>
                 <div className="flex justify-between items-center mb-2">
                   <h4 className="font-bold">{player.name} {player.id === gameState.myPlayerId && <span className="text-blue-500">(You)</span>}</h4>
                   {player.hasSubmittedDescription && <span className="text-green-500 text-sm">✓</span>}
+                  {gameState.currentTurnPlayerId === player.id && !player.hasSubmittedDescription && <span className="text-blue-500 text-sm">— speaking</span>}
                 </div>
-                {player.id === gameState.myPlayerId && !player.hasSubmittedDescription ? (
-                  <InputField placeholder="Describe your word (press Enter)" onKeyDown={(e) => { if (e.key === 'Enter') { const input = e.target as HTMLInputElement; if (input.value.trim()) submitDescription(input.value.trim()); }}} className="w-full" />
-                ) : (
-                  <div className={player.description ? 'text-gray-800 dark:text-gray-200' : 'text-gray-500 italic'}>
-                    {player.description ? `"${player.description}"` : player.hasSubmittedDescription ? '(waiting...)' : 'Waiting...'}
-                  </div>
-                )}
+                <div className={player.description ? 'text-gray-800 dark:text-gray-200' : 'text-gray-500 italic'}>
+                  {player.description ? `"${player.description}"` : player.hasSubmittedDescription ? '(submitted)' : 'Waiting for turn...'}
+                </div>
               </div>
             ))}
           </div>
+        </>
+      );
+    }
+
+    // DISCUSSION PHASE
+    if (gameState.phase === 'discussion') {
+      const timeUp = discussionSecondsLeft !== null && discussionSecondsLeft <= 0;
+      const descriptionsToShow = gameState.descriptionTranscript?.length
+        ? gameState.descriptionTranscript
+        : gameState.players.filter(p => p.description).map(p => ({ playerName: p.name, description: p.description! }));
+
+      return (
+        <>
+          <div className="mb-6 text-center">
+            <h3 className="text-2xl font-bold">Discussion Phase</h3>
+            <p className="text-gray-600 dark:text-gray-400">
+              Discuss who might be Undercover. 30 seconds.
+            </p>
+          </div>
+
+          {/* What everyone said - show all 4 descriptions for reference during discussion */}
+          {descriptionsToShow.length > 0 && (
+            <div className="mb-4 p-3 bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+              <h4 className="font-bold mb-2">What everyone said:</h4>
+              <ol className="list-decimal list-inside space-y-1 text-gray-800 dark:text-gray-200">
+                {descriptionsToShow.map((entry, i) => (
+                  <li key={i}>
+                    <span className="font-medium">{entry.playerName}:</span> &quot;{entry.description}&quot;
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          <div className="mb-4 p-3 bg-gray-100 dark:bg-gray-700 rounded-lg text-center">
+            {discussionSecondsLeft !== null ? (
+              timeUp ? (
+                <span className="text-gray-500">Discussion ended. Voting will start shortly.</span>
+              ) : (
+                <span className="font-semibold">Time left: 0:{String(discussionSecondsLeft).padStart(2, '0')}</span>
+              )
+            ) : null}
+          </div>
+
+          {/* Discussion messages */}
+          <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 max-h-48 overflow-y-auto">
+            {gameState.discussionMessages && gameState.discussionMessages.length > 0 ? (
+              <div className="space-y-2">
+                {gameState.discussionMessages.map((entry, i) => (
+                  <div key={i} className="flex flex-col">
+                    <span className="font-semibold text-sm text-blue-600 dark:text-blue-400">{entry.playerName}:</span>
+                    <span className="text-gray-800 dark:text-gray-200">{entry.message}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-500 italic text-center">No messages yet. Start the discussion!</p>
+            )}
+          </div>
+
+          {/* Chat input */}
+          {!timeUp && (
+            <div className="flex gap-2 mb-6">
+              <InputField
+                placeholder="Type a message..."
+                value={discussionInput}
+                onChange={(e) => setDiscussionInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (discussionInput.trim()) {
+                      sendDiscussionMessage(discussionInput.trim());
+                      setDiscussionInput('');
+                    }
+                  }
+                }}
+                className="flex-1"
+              />
+              <Button
+                onClick={() => {
+                  if (discussionInput.trim()) {
+                    sendDiscussionMessage(discussionInput.trim());
+                    setDiscussionInput('');
+                  }
+                }}
+              >
+                Send
+              </Button>
+            </div>
+          )}
+
+          {timeUp && (
+            <div className="text-center mb-4">
+              <Button onClick={advanceToVoting}>Proceed to Voting</Button>
+            </div>
+          )}
         </>
       );
     }
@@ -643,28 +798,15 @@ const App: React.FC = () => {
             ))}
           </div>
 
-          {/* AI Vote Highlight */}
-          <div className="mb-6 p-4 bg-purple-100 dark:bg-purple-900 rounded-lg text-center">
-            <h4 className="font-bold mb-1">🤖 The AI ({results.aiPlayer.name}) voted for:</h4>
-            <p className="text-xl font-bold">
-              {(() => {
-                const aiPlayer = results.allPlayers.find(p => p.id === 'AI_PLAYER');
-                const votedFor = results.allPlayers.find(p => p.id === aiPlayer?.voteTarget);
-                return votedFor ? votedFor.name : 'Unknown';
-              })()}
-            </p>
-          </div>
-
+          {/* Player cards - do NOT reveal who is AI until Final Results (Guess the AI phase) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             {shuffleWithSeed<typeof results.allPlayers[0]>(results.allPlayers, roomState.roomCode || '').map(player => (
               <div key={player.id} className={`p-4 rounded-lg border-2 ${
-                player.id === 'AI_PLAYER' ? 'border-purple-500 bg-purple-50 dark:bg-purple-900' :
                 player.role === 'Undercover' ? 'border-red-500 bg-red-50 dark:bg-red-900' : 
                 'border-green-500 bg-green-50 dark:bg-green-900'
               }`}>
                 <h4 className="font-bold">
-                  {player.name} 
-                  {player.id === 'AI_PLAYER' && <span className="text-purple-600 ml-2">🤖 AI</span>}
+                  {player.name}
                 </h4>
                 <p>Role: <span className="font-bold">{player.role}</span></p>
                 <p>Word: "{player.word}"</p>
@@ -775,6 +917,12 @@ const App: React.FC = () => {
             </div>
           )}
 
+          {!iGuessedCorrectly && gameState.playersWhoNeedToGuessAI.includes(gameState.myPlayerId || '') && (
+            <div className="text-center p-4 bg-amber-100 dark:bg-amber-900 rounded-lg mb-6">
+              <p className="text-xl text-amber-800 dark:text-amber-200">😔 Unfortunately, you didn&apos;t find who the AI was.</p>
+            </div>
+          )}
+
           <div className="text-center">
             <p className="text-gray-500 mb-4">Thanks for playing!</p>
           </div>
@@ -794,7 +942,7 @@ const App: React.FC = () => {
       </header>
       <main className="flex-grow w-full max-w-4xl p-6 bg-white dark:bg-gray-800 rounded-lg shadow-xl">
         {/* Your Secret Word - show during gameplay phases */}
-        {(gameState.phase === 'description' || gameState.phase === 'voting') && (
+        {(gameState.phase === 'description' || gameState.phase === 'discussion' || gameState.phase === 'voting') && (
           <div className="mb-6 p-4 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg text-white">
             <h2 className="text-xl font-bold mb-2">Your Secret Word</h2>
             <div className="text-center">

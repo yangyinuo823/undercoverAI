@@ -48,6 +48,19 @@ interface FinalResults {
   allGuesses: { playerId: string; playerName: string; guessedId: string; correct: boolean }[];
 }
 
+interface DescriptionTranscriptEntry {
+  playerId: string;
+  playerName: string;
+  description: string;
+}
+
+interface DiscussionMessageEntry {
+  playerId: string;
+  playerName: string;
+  message: string;
+  timestamp: number;
+}
+
 interface GameState {
   isGameStarted: boolean;
   phase: string;
@@ -58,6 +71,16 @@ interface GameState {
   votingResults: VotingResults | null;
   finalResults: FinalResults | null;
   playersWhoNeedToGuessAI: string[];
+  // Turn-based description
+  descriptionTurnOrder: string[];
+  descriptionTurnIndex: number;
+  descriptionTranscript: DescriptionTranscriptEntry[];
+  currentTurnPlayerId: string | null;
+  nextTurnPlayerId: string | null;
+  aiThinking: boolean;
+  // Discussion phase
+  discussionMessages: DiscussionMessageEntry[];
+  discussionEndsAt: number | null;
 }
 
 interface SocketContextType {
@@ -71,6 +94,7 @@ interface SocketContextType {
   leaveRoom: () => void;
   startGame: () => void;
   submitDescription: (description: string) => void;
+  sendDiscussionMessage: (message: string) => void;
   advanceToVoting: () => void;
   submitVote: (targetId: string) => void;
   advanceToAIGuess: () => void;
@@ -97,6 +121,14 @@ const initialGameState: GameState = {
   votingResults: null,
   finalResults: null,
   playersWhoNeedToGuessAI: [],
+  descriptionTurnOrder: [],
+  descriptionTurnIndex: 0,
+  descriptionTranscript: [],
+  currentTurnPlayerId: null,
+  nextTurnPlayerId: null,
+  aiThinking: false,
+  discussionMessages: [],
+  discussionEndsAt: null,
 };
 
 const SocketContext = createContext<SocketContextType | null>(null);
@@ -208,7 +240,32 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         votingResults: null,
         finalResults: null,
         playersWhoNeedToGuessAI: [],
+        descriptionTurnOrder: data.descriptionTurnOrder || [],
+        descriptionTurnIndex: data.descriptionTurnIndex ?? 0,
+        descriptionTranscript: [],
+        currentTurnPlayerId: null,
+        nextTurnPlayerId: null,
+        aiThinking: false,
+        discussionMessages: [],
+        discussionEndsAt: null,
       });
+    });
+
+    newSocket.on('description-turn-started', (data: {
+      currentTurnPlayerId: string | null;
+      currentTurnPlayerName: string | null;
+      nextTurnPlayerId: string | null;
+      nextTurnPlayerName: string | null;
+      transcript: DescriptionTranscriptEntry[];
+      aiThinking?: boolean;
+    }) => {
+      setGameState(prev => ({
+        ...prev,
+        currentTurnPlayerId: data.currentTurnPlayerId,
+        nextTurnPlayerId: data.nextTurnPlayerId,
+        descriptionTranscript: data.transcript || prev.descriptionTranscript,
+        aiThinking: data.aiThinking ?? false,
+      }));
     });
 
     newSocket.on('game-phase-changed', (data) => {
@@ -220,14 +277,17 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }));
     });
 
-    newSocket.on('player-submitted-description', (data) => {
+    newSocket.on('player-submitted-description', (data: { playerId: string; playerName: string; description?: string }) => {
       setGameState(prev => ({
         ...prev,
         players: prev.players.map(p => 
           p.id === data.playerId 
-            ? { ...p, hasSubmittedDescription: true }
+            ? { ...p, hasSubmittedDescription: true, description: data.description ?? p.description }
             : p
         ),
+        descriptionTranscript: data.description
+          ? [...prev.descriptionTranscript, { playerId: data.playerId, playerName: data.playerName, description: data.description }]
+          : prev.descriptionTranscript,
       }));
     });
 
@@ -303,6 +363,38 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.log(data.message);
     });
 
+    newSocket.on('description-phase-complete', (data: { transcript?: DescriptionTranscriptEntry[] }) => {
+      setGameState(prev => ({
+        ...prev,
+        aiThinking: false,
+        descriptionTranscript: data.transcript ?? prev.descriptionTranscript,
+      }));
+    });
+
+    newSocket.on('discussion-phase-started', (data: { startedAt: number; durationMs: number }) => {
+      setGameState(prev => ({
+        ...prev,
+        phase: 'discussion',
+        discussionMessages: [],
+        discussionEndsAt: data.startedAt + data.durationMs,
+      }));
+    });
+
+    newSocket.on('discussion-message', (data: DiscussionMessageEntry) => {
+      setGameState(prev => ({
+        ...prev,
+        discussionMessages: [...prev.discussionMessages, data],
+      }));
+    });
+
+    newSocket.on('discussion-phase-ended', () => {
+      setGameState(prev => ({
+        ...prev,
+        phase: 'voting',
+        discussionEndsAt: null,
+      }));
+    });
+
     newSocket.on('all-humans-submitted-votes', (data) => {
       console.log(data.message);
     });
@@ -355,6 +447,12 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [socket, roomState.roomCode]);
 
+  const sendDiscussionMessage = useCallback((message: string) => {
+    if (socket && roomState.roomCode && message.trim()) {
+      socket.emit('send-discussion-message', { roomCode: roomState.roomCode, message: message.trim() });
+    }
+  }, [socket, roomState.roomCode]);
+
   const advanceToVoting = useCallback(() => {
     if (socket && roomState.roomCode) {
       socket.emit('advance-to-voting', roomState.roomCode);
@@ -397,6 +495,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       leaveRoom,
       startGame,
       submitDescription,
+      sendDiscussionMessage,
       advanceToVoting,
       submitVote,
       advanceToAIGuess,

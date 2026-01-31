@@ -8,6 +8,7 @@ export enum Role {
 export enum GamePhase {
   LOBBY = 'lobby',
   DESCRIPTION = 'description',
+  DISCUSSION = 'discussion',
   VOTING = 'voting',
   RESULTS = 'results',
   AI_GUESS = 'ai_guess',
@@ -48,6 +49,9 @@ export interface GameState {
   civilianWord: string;
   undercoverWord: string;
   aiPersona?: AIPersona;  // Persistent AI personality for this game
+  // Turn-based description phase
+  descriptionTurnOrder: string[];   // shuffled player IDs for description order
+  descriptionTurnIndex: number;     // 0-based current turn
   // Results tracking
   eliminatedPlayerId?: string;
   civiliansWon?: boolean;
@@ -71,6 +75,8 @@ export interface PlayerGameView {
   myPlayerId: string;
   myRole?: Role;    // Only shown in results - players don't know their role!
   myWord: string;   // Players know their word but not their role
+  descriptionTurnOrder: string[];   // player IDs in turn order
+  descriptionTurnIndex: number;    // current turn (0-based)
   players: {
     id: string;
     name: string;
@@ -216,6 +222,10 @@ class GameManager {
     // Generate AI persona for this game (persists across all AI actions)
     const aiPersona = generateAIPersona();
 
+    // Randomize turn order for description phase (Fisher-Yates)
+    const allPlayerIds = [...humanPlayers.map(p => p.id), AI_PLAYER_ID];
+    const descriptionTurnOrder = shuffleArray(allPlayerIds);
+
     const gameState: GameState = {
       roomCode,
       phase: GamePhase.DESCRIPTION,
@@ -224,6 +234,8 @@ class GameManager {
       civilianWord: CIVILIAN_WORD,
       undercoverWord: UNDERCOVER_WORD,
       aiPersona,
+      descriptionTurnOrder,
+      descriptionTurnIndex: 0,
       aiGuesses: new Map(),
       aiGuessWinners: [],
     };
@@ -267,9 +279,10 @@ class GameManager {
       roomCode: game.roomCode,
       phase: game.phase,
       myPlayerId: playerId,
-      // Only show role in results - players must guess their role from descriptions!
       myRole: showResults ? myPlayer.role : undefined,
       myWord: myPlayer.word,
+      descriptionTurnOrder: game.descriptionTurnOrder,
+      descriptionTurnIndex: game.descriptionTurnIndex,
       players,
     };
   }
@@ -288,10 +301,52 @@ class GameManager {
     return game.aiPersona;
   }
 
-  // Submit description for a player
+  // Get current turn player ID (for description phase)
+  getCurrentTurnPlayerId(roomCode: string): string | null {
+    const game = this.games.get(roomCode);
+    if (!game || game.phase !== GamePhase.DESCRIPTION) return null;
+    if (game.descriptionTurnIndex >= game.descriptionTurnOrder.length) return null;
+    return game.descriptionTurnOrder[game.descriptionTurnIndex];
+  }
+
+  // Get next turn player ID (after current)
+  getNextTurnPlayerId(roomCode: string): string | null {
+    const game = this.games.get(roomCode);
+    if (!game) return null;
+    const nextIndex = game.descriptionTurnIndex + 1;
+    if (nextIndex >= game.descriptionTurnOrder.length) return null;
+    return game.descriptionTurnOrder[nextIndex];
+  }
+
+  // Get descriptions so far (in turn order) for transcript / AI
+  getDescriptionsSoFar(roomCode: string): { playerId: string; playerName: string; description: string }[] {
+    const game = this.games.get(roomCode);
+    if (!game) return [];
+    const result: { playerId: string; playerName: string; description: string }[] = [];
+    for (let i = 0; i < game.descriptionTurnIndex; i++) {
+      const pid = game.descriptionTurnOrder[i];
+      const p = game.players.get(pid);
+      if (p && p.description) result.push({ playerId: p.id, playerName: p.name, description: p.description });
+    }
+    return result;
+  }
+
+  // Advance to next turn; returns next player ID or null if phase complete
+  advanceDescriptionTurn(roomCode: string): string | null {
+    const game = this.games.get(roomCode);
+    if (!game) return null;
+    game.descriptionTurnIndex++;
+    if (game.descriptionTurnIndex >= game.descriptionTurnOrder.length) return null;
+    return game.descriptionTurnOrder[game.descriptionTurnIndex];
+  }
+
+  // Submit description for a player (only valid if it's their turn)
   submitDescription(roomCode: string, playerId: string, description: string): boolean {
     const game = this.games.get(roomCode);
     if (!game || game.phase !== GamePhase.DESCRIPTION) return false;
+
+    const currentTurnId = this.getCurrentTurnPlayerId(roomCode);
+    if (currentTurnId !== playerId) return false;
 
     const player = game.players.get(playerId);
     if (!player) return false;
@@ -361,6 +416,9 @@ class GameManager {
 
     switch (game.phase) {
       case GamePhase.DESCRIPTION:
+        game.phase = GamePhase.DISCUSSION;
+        break;
+      case GamePhase.DISCUSSION:
         game.phase = GamePhase.VOTING;
         break;
       case GamePhase.VOTING:
@@ -590,4 +648,3 @@ class GameManager {
 
 export const gameManager = new GameManager();
 export { AI_PLAYER_ID, CIVILIAN_WORD, UNDERCOVER_WORD };
-export type { AIPersona };
