@@ -524,10 +524,13 @@ class GameManager {
     const game = this.games.get(roomCode);
     if (!game) return null;
 
-    // Count votes (only alive players' votes count; current game has everyone voting)
+    // Players who were alive during this voting round (before any elimination in this function)
+    const aliveIds = new Set(game.alivePlayerIds ?? game.players.keys());
+
+    // Count votes (only alive players' votes count; eliminated players' stale voteTarget is ignored)
     const voteCounts = new Map<string, number>();
     for (const player of game.players.values()) {
-      if (player.voteTarget) {
+      if (aliveIds.has(player.id) && player.voteTarget) {
         voteCounts.set(player.voteTarget, (voteCounts.get(player.voteTarget) || 0) + 1);
       }
     }
@@ -584,13 +587,16 @@ class GameManager {
       votes,
     })).sort((a, b) => b.votes - a.votes);
 
-    const allPlayers = Array.from(game.players.values()).map(p => ({
-      id: p.id,
-      name: p.name,
-      role: p.role,
-      word: p.word,
-      voteTarget: p.voteTarget,
-    }));
+    // "Who voted for whom" = only players who were alive (and could vote) this round
+    const allPlayers = Array.from(game.players.values())
+      .filter(p => aliveIds.has(p.id))
+      .map(p => ({
+        id: p.id,
+        name: p.name,
+        role: p.role,
+        word: p.word,
+        voteTarget: p.voteTarget,
+      }));
 
     console.log(`Voting results for ${roomCode}: Eliminated=${eliminatedPlayer?.name}, CiviliansWon=${civiliansWon}, outcome=${outcome}`);
 

@@ -32,13 +32,24 @@ const shuffleWithSeed = <T,>(array: T[], seed: string): T[] => {
 };
 
 const App: React.FC = () => {
-  const { roomState, gameState, submitDescription, sendDiscussionMessage, advanceToVoting, submitVote, advanceToAIGuess, submitAIGuess, skipAIGuess } = useSocket();
+  const { socket, roomState, gameState, submitDescription, sendDiscussionMessage, advanceToVoting, submitVote, advanceToAIGuess, submitAIGuess, skipAIGuess } = useSocket();
   const [selectedVote, setSelectedVote] = useState<string | null>(null);
   const [selectedAIGuess, setSelectedAIGuess] = useState<string | null>(null);
   const [hasVoted, setHasVoted] = useState(false);
   const [hasGuessedAI, setHasGuessedAI] = useState(false);
   const [discussionInput, setDiscussionInput] = useState('');
   const [discussionSecondsLeft, setDiscussionSecondsLeft] = useState<number | null>(null);
+
+  // Reset voting state when a new cycle starts so players can vote again in round 2+
+  useEffect(() => {
+    if (!socket) return;
+    const onNewCycle = () => {
+      setHasVoted(false);
+      setSelectedVote(null);
+    };
+    socket.on('new-cycle-started', onNewCycle);
+    return () => { socket.off('new-cycle-started', onNewCycle); };
+  }, [socket]);
 
   // Countdown for discussion phase
   useEffect(() => {
@@ -840,8 +851,26 @@ const App: React.FC = () => {
             <p className="text-lg mt-2">You were: <span className="font-bold">{myPlayer?.role}</span> - {iWon ? '✅ You Won!' : '❌ You Lost'}</p>
           </div>
 
+          {/* Who voted for whom - includes AI player */}
+          <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/30 rounded-lg border-2 border-blue-200 dark:border-blue-700">
+            <h4 className="font-bold mb-3 text-lg">Who voted for whom</h4>
+            <ul className="space-y-1">
+              {results.allPlayers.map(player => {
+                const targetName = player.voteTarget ? results.allPlayers.find(p => p.id === player.voteTarget)?.name : null;
+                return (
+                  <li key={player.id} className="flex justify-between items-center gap-2">
+                    <span className="font-medium">{player.name}</span>
+                    <span className="text-gray-600 dark:text-gray-300">
+                      → voted for <span className="font-semibold">{targetName ?? 'N/A'}</span>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
           <div className="mb-6 p-4 bg-gray-100 dark:bg-gray-700 rounded-lg">
-            <h4 className="font-bold mb-2">Vote Results:</h4>
+            <h4 className="font-bold mb-2">Votes received (tally)</h4>
             {results.voteCounts.map(vc => (
               <div key={vc.playerId} className="flex justify-between">
                 <span>{vc.playerName}</span>

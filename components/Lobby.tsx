@@ -35,13 +35,15 @@ const Lobby: React.FC = () => {
 
         <div className="mb-6">
           <h3 className="text-xl font-semibold mb-3">Players ({roomState.players.length}/3)</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Names are hidden until the game starts.</p>
           <div className="flex flex-col gap-2 items-center">
             {roomState.players.map((player, index) => (
               <div 
                 key={player.id} 
                 className="bg-white dark:bg-gray-700 px-4 py-2 rounded-lg shadow border border-gray-200 dark:border-gray-600 w-64"
               >
-                <span className="font-medium">Player {index + 1}:</span> {player.name}
+                <span className="font-medium">Player {index + 1}</span>
+                <span className="text-gray-500 dark:text-gray-400 text-sm ml-1">joined</span>
               </div>
             ))}
             {Array.from({ length: roomState.playersNeeded }).map((_, index) => (
