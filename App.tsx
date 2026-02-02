@@ -548,11 +548,17 @@ const App: React.FC = () => {
       const currentTurnPlayer = gameState.currentTurnPlayerId ? gameState.players.find(p => p.id === gameState.currentTurnPlayerId) : null;
       const isMyTurn = gameState.currentTurnPlayerId === gameState.myPlayerId;
       const amINext = gameState.nextTurnPlayerId === gameState.myPlayerId;
+      const isNewCycle = gameState.votingResults?.outcome === 'new_cycle';
 
       return (
         <>
+          {isNewCycle && gameState.votingResults?.eliminatedPlayer && (
+            <div className="mb-4 p-3 bg-amber-100 dark:bg-amber-900 text-amber-900 dark:text-amber-100 rounded-lg text-center">
+              <strong>{gameState.votingResults.eliminatedPlayer.name}</strong> was eliminated. New round — describe your word in order.
+            </div>
+          )}
           <div className="mb-6 text-center">
-            <h3 className="text-2xl font-bold">Description Phase (turn-based)</h3>
+            <h3 className="text-2xl font-bold">{gameState.cycleNumber ? `Round ${gameState.cycleNumber} — ` : ''}Description Phase (turn-based)</h3>
             <p className="text-gray-600 dark:text-gray-400">
               Each player describes their word in order. Wait for your turn.
             </p>
@@ -591,8 +597,8 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {/* Input only when it's your turn (and you're human) */}
-          {!allDescriptionsRevealed && isMyTurn && myPlayer && myPlayer.id !== 'AI_PLAYER' && !myPlayer.hasSubmittedDescription && (
+          {/* Input only when it's your turn, you're human, and you're alive (not eliminated) */}
+          {!allDescriptionsRevealed && isMyTurn && myPlayer && myPlayer.id !== 'AI_PLAYER' && !myPlayer.hasSubmittedDescription && !myPlayer.isEliminated && (
             <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900 rounded-lg border-2 border-blue-400">
               <p className="font-bold mb-2">Your turn — describe your word (press Enter to submit):</p>
               <InputField
@@ -608,23 +614,31 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {!allDescriptionsRevealed && !isMyTurn && !gameState.aiThinking && (
+          {myPlayer?.isEliminated && (
+            <div className="mb-4 p-3 bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 rounded-lg text-center">
+              You have been eliminated. You cannot describe or vote this round.
+            </div>
+          )}
+
+          {!allDescriptionsRevealed && !isMyTurn && !gameState.aiThinking && !myPlayer?.isEliminated && (
             <div className="mb-4 p-3 text-center text-gray-600 dark:text-gray-400">
               {amINext ? "You're next — get ready!" : `Waiting for ${currentTurnPlayer?.name ?? 'current player'}...`}
             </div>
           )}
 
-          {/* Player list (read-only during description) */}
+          {/* Player list (read-only during description); eliminated players greyed out */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {shuffledPlayers.map((player) => (
-              <div key={player.id} className={`p-4 rounded-lg border-2 ${player.id === gameState.myPlayerId ? 'bg-blue-50 dark:bg-blue-900 border-blue-400' : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600'}`}>
+              <div key={player.id} className={`p-4 rounded-lg border-2 ${
+                player.isEliminated ? 'bg-gray-200 dark:bg-gray-600 border-gray-400 opacity-75' :
+                player.id === gameState.myPlayerId ? 'bg-blue-50 dark:bg-blue-900 border-blue-400' : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600'
+              }`}>
                 <div className="flex justify-between items-center mb-2">
-                  <h4 className="font-bold">{player.name} {player.id === gameState.myPlayerId && <span className="text-blue-500">(You)</span>}</h4>
-                  {player.hasSubmittedDescription && <span className="text-green-500 text-sm">✓</span>}
-                  {gameState.currentTurnPlayerId === player.id && !player.hasSubmittedDescription && <span className="text-blue-500 text-sm">— speaking</span>}
+                  <h4 className="font-bold">{player.name} {player.id === gameState.myPlayerId && <span className="text-blue-500">(You)</span>} {player.isEliminated && <span className="text-gray-500 text-sm font-normal">— Eliminated</span>}</h4>
+                  {player.isEliminated ? <span className="text-gray-500 text-sm">Eliminated</span> : player.hasSubmittedDescription ? <span className="text-green-500 text-sm">✓</span> : gameState.currentTurnPlayerId === player.id && <span className="text-blue-500 text-sm">— speaking</span>}
                 </div>
                 <div className={player.description ? 'text-gray-800 dark:text-gray-200' : 'text-gray-500 italic'}>
-                  {player.description ? `"${player.description}"` : player.hasSubmittedDescription ? '(submitted)' : 'Waiting for turn...'}
+                  {player.description ? `"${player.description}"` : player.hasSubmittedDescription ? '(submitted)' : player.isEliminated ? '—' : 'Waiting for turn...'}
                 </div>
               </div>
             ))}
@@ -643,7 +657,7 @@ const App: React.FC = () => {
       return (
         <>
           <div className="mb-6 text-center">
-            <h3 className="text-2xl font-bold">Discussion Phase</h3>
+            <h3 className="text-2xl font-bold">{gameState.cycleNumber ? `Round ${gameState.cycleNumber} — ` : ''}Discussion Phase</h3>
             <p className="text-gray-600 dark:text-gray-400">
               Discuss who might be Undercover. 30 seconds.
             </p>
@@ -689,8 +703,8 @@ const App: React.FC = () => {
             )}
           </div>
 
-          {/* Chat input */}
-          {!timeUp && (
+          {/* Chat input — only for alive players; messages from everyone (alive and eliminated) shown above */}
+          {!timeUp && myPlayer && !myPlayer.isEliminated && (
             <div className="flex gap-2 mb-6">
               <InputField
                 placeholder="Type a message..."
@@ -718,6 +732,11 @@ const App: React.FC = () => {
               </Button>
             </div>
           )}
+          {!timeUp && myPlayer?.isEliminated && (
+            <div className="mb-4 p-3 bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 rounded-lg text-center">
+              You have been eliminated. You cannot send messages.
+            </div>
+          )}
 
           {timeUp && (
             <div className="text-center mb-4">
@@ -730,46 +749,79 @@ const App: React.FC = () => {
 
     // VOTING PHASE
     if (gameState.phase === 'voting') {
-      const allHumansVoted = gameState.players.filter(p => p.id !== 'AI_PLAYER').every(p => p.hasVoted);
+      const alivePlayers = gameState.players.filter(p => !p.isEliminated);
+      const eliminatedPlayers = gameState.players.filter(p => p.isEliminated);
+      const allAliveHumansVoted = alivePlayers.filter(p => p.id !== 'AI_PLAYER').every(p => p.hasVoted);
+      const canVote = myPlayer && !myPlayer.isEliminated;
       
       return (
         <>
           <div className="mb-6 text-center">
-            <h3 className="text-2xl font-bold">Voting Phase</h3>
+            <h3 className="text-2xl font-bold">{gameState.cycleNumber ? `Round ${gameState.cycleNumber} — ` : ''}Voting Phase</h3>
             <p className="text-gray-600 dark:text-gray-400">Vote for the player you think has a different word!</p>
           </div>
 
-          {allHumansVoted && !hasVoted && (
+          {!canVote && (
+            <div className="mb-4 p-3 bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 rounded-lg text-center">
+              You have been eliminated. You cannot vote.
+            </div>
+          )}
+
+          {canVote && allAliveHumansVoted && !hasVoted && (
             <div className="mb-4 p-3 bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 rounded-lg text-center animate-pulse">
               Waiting for the last player to vote...
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            {shuffledPlayers.map((player) => (
-              <div key={player.id} className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                selectedVote === player.id ? 'border-red-500 bg-red-50 dark:bg-red-900' :
-                player.id === gameState.myPlayerId ? 'bg-blue-50 dark:bg-blue-900 border-blue-400' : 
-                'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 hover:border-red-300'
-              }`} onClick={() => !hasVoted && player.id !== gameState.myPlayerId && setSelectedVote(player.id)}>
-                <div className="flex justify-between items-center mb-2">
-                  <h4 className="font-bold">{player.name} {player.id === gameState.myPlayerId && <span className="text-blue-500">(You)</span>}</h4>
-                  {player.hasVoted && <span className="text-green-500 text-sm">✓ Voted</span>}
-                </div>
-                <div className="text-gray-800 dark:text-gray-200">"{player.description}"</div>
-                {selectedVote === player.id && <div className="mt-2 text-red-600 font-bold">Selected for vote</div>}
+          {/* Alive players — vote targets (clickable) */}
+          {canVote && (
+            <div className="mb-4">
+              <h4 className="font-bold mb-2 text-gray-700 dark:text-gray-300">Vote for a player:</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                {alivePlayers.map((player) => (
+                  <div key={player.id} className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                    selectedVote === player.id ? 'border-red-500 bg-red-50 dark:bg-red-900' :
+                    player.id === gameState.myPlayerId ? 'bg-blue-50 dark:bg-blue-900 border-blue-400' : 
+                    'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 hover:border-red-300'
+                  }`} onClick={() => !hasVoted && player.id !== gameState.myPlayerId && setSelectedVote(player.id)}>
+                    <div className="flex justify-between items-center mb-2">
+                      <h4 className="font-bold">{player.name} {player.id === gameState.myPlayerId && <span className="text-blue-500">(You)</span>}</h4>
+                      {player.hasVoted && <span className="text-green-500 text-sm">✓ Voted</span>}
+                    </div>
+                    <div className="text-gray-800 dark:text-gray-200">"{player.description}"</div>
+                    {selectedVote === player.id && <div className="mt-2 text-red-600 font-bold">Selected for vote</div>}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </div>
+          )}
 
-          {!hasVoted && selectedVote && (
+          {/* Eliminated players — greyed out, not clickable */}
+          {eliminatedPlayers.length > 0 && (
+            <div className="mb-4">
+              <h4 className="font-bold mb-2 text-gray-500 dark:text-gray-400">Eliminated:</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {eliminatedPlayers.map((player) => (
+                  <div key={player.id} className="p-4 rounded-lg border-2 bg-gray-200 dark:bg-gray-600 border-gray-400 opacity-75 cursor-not-allowed">
+                    <div className="flex justify-between items-center mb-2">
+                      <h4 className="font-bold text-gray-600 dark:text-gray-400">{player.name} {player.id === gameState.myPlayerId && <span className="text-blue-400">(You)</span>}</h4>
+                      <span className="text-gray-500 text-sm">Eliminated</span>
+                    </div>
+                    <div className="text-gray-500 dark:text-gray-400">"{player.description}"</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {canVote && !hasVoted && selectedVote && (
             <div className="text-center">
               <Button onClick={() => { submitVote(selectedVote); setHasVoted(true); }}>
-                Submit Vote for {shuffledPlayers.find(p => p.id === selectedVote)?.name}
+                Submit Vote for {alivePlayers.find(p => p.id === selectedVote)?.name}
               </Button>
             </div>
           )}
-          {hasVoted && <div className="text-center text-green-600 font-bold">Vote submitted! Waiting for results...</div>}
+          {canVote && hasVoted && <div className="text-center text-green-600 font-bold">Vote submitted! Waiting for results...</div>}
         </>
       );
     }

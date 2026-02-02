@@ -22,6 +22,7 @@ interface GamePlayer {
   voteTarget?: string;
   role?: string;
   word?: string;
+  isEliminated?: boolean;
 }
 
 interface RoomState {
@@ -40,6 +41,8 @@ interface VotingResults {
   aiPlayer: { id: string; name: string; role: string };
   voteCounts: { playerId: string; playerName: string; votes: number }[];
   allPlayers: { id: string; name: string; role: string; word: string; voteTarget: string }[];
+  /** Present when server sends voting results: game ends or new cycle started */
+  outcome?: 'game_over' | 'new_cycle';
 }
 
 interface FinalResults {
@@ -81,6 +84,8 @@ interface GameState {
   // Discussion phase
   discussionMessages: DiscussionMessageEntry[];
   discussionEndsAt: number | null;
+  /** Round number (1, 2, 3...) for multi-cycle games */
+  cycleNumber: number;
 }
 
 interface SocketContextType {
@@ -129,6 +134,7 @@ const initialGameState: GameState = {
   aiThinking: false,
   discussionMessages: [],
   discussionEndsAt: null,
+  cycleNumber: 1,
 };
 
 const SocketContext = createContext<SocketContextType | null>(null);
@@ -248,6 +254,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         aiThinking: false,
         discussionMessages: [],
         discussionEndsAt: null,
+        cycleNumber: 1,
       });
     });
 
@@ -330,8 +337,12 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setGameState(prev => ({
           ...prev,
           phase: data.phase,
-          myRole: data.myRole || prev.myRole,
+          myRole: data.myRole ?? prev.myRole,
           players: data.players,
+          ...(data.descriptionTurnOrder != null && { descriptionTurnOrder: data.descriptionTurnOrder }),
+          ...(data.descriptionTurnIndex != null && { descriptionTurnIndex: data.descriptionTurnIndex }),
+          // New cycle: clear transcript when we get new turn order
+          ...(data.descriptionTurnOrder != null && { descriptionTranscript: [] }),
         }));
       }
     });
@@ -342,6 +353,31 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         ...prev,
         phase: data.phase,
         votingResults: data,
+      }));
+    });
+
+    newSocket.on('new-cycle-started', (data: {
+      cycleNumber: number;
+      alivePlayerIds: string[];
+      descriptionTurnOrder: string[];
+      eliminatedPlayer: { id: string; name: string; role: string } | null;
+      currentTurnPlayerId?: string | null;
+      currentTurnPlayerName?: string | null;
+      nextTurnPlayerId?: string | null;
+      nextTurnPlayerName?: string | null;
+    }) => {
+      console.log('New cycle started:', data);
+      const alive = new Set(data.alivePlayerIds || []);
+      setGameState(prev => ({
+        ...prev,
+        phase: 'description',
+        cycleNumber: data.cycleNumber ?? prev.cycleNumber,
+        descriptionTurnOrder: data.descriptionTurnOrder,
+        descriptionTranscript: [],
+        currentTurnPlayerId: data.currentTurnPlayerId ?? null,
+        nextTurnPlayerId: data.nextTurnPlayerId ?? null,
+        votingResults: data.eliminatedPlayer ? { outcome: 'new_cycle', eliminatedPlayer: data.eliminatedPlayer } as any : prev.votingResults,
+        players: prev.players.map(p => ({ ...p, isEliminated: !alive.has(p.id) })),
       }));
     });
 

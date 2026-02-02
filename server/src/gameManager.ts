@@ -57,6 +57,9 @@ export interface GameState {
   civiliansWon?: boolean;
   aiGuesses: Map<string, string>;  // playerId -> guessed AI player id
   aiGuessWinners: string[];  // playerIds who correctly guessed AI
+  // Multi-cycle: alive players (eliminated are removed from this list)
+  alivePlayerIds: string[];
+  cycleNumber: number;  // starts at 1, incremented each new cycle
 }
 
 export interface GameResults {
@@ -66,6 +69,13 @@ export interface GameResults {
   aiPlayer: { id: string; name: string; role: Role };
   voteCounts: { playerId: string; playerName: string; votes: number }[];
   allPlayers: { id: string; name: string; role: Role; word: string; voteTarget: string }[];
+}
+
+/** Result of voting: game over (show results → AI guess / final) or new cycle (back to description). */
+export type VotingOutcome = 'game_over' | 'new_cycle';
+
+export interface VotingResultsWithOutcome extends GameResults {
+  outcome: VotingOutcome;
 }
 
 // What each player can see (filtered view)
@@ -87,6 +97,7 @@ export interface PlayerGameView {
     voteTarget?: string;  // Only shown in results
     role?: Role;          // Only shown in results
     word?: string;        // Only shown in results
+    isEliminated: boolean;  // Based on alivePlayerIds
   }[];
 }
 
@@ -222,9 +233,10 @@ class GameManager {
     // Generate AI persona for this game (persists across all AI actions)
     const aiPersona = generateAIPersona();
 
-    // Randomize turn order for description phase (Fisher-Yates)
+    // Turn order from alive players only (at start = all 4)
     const allPlayerIds = [...humanPlayers.map(p => p.id), AI_PLAYER_ID];
-    const descriptionTurnOrder = shuffleArray(allPlayerIds);
+    const alivePlayerIds = [...allPlayerIds];
+    const descriptionTurnOrder = shuffleArray([...alivePlayerIds]);
 
     const gameState: GameState = {
       roomCode,
@@ -238,6 +250,8 @@ class GameManager {
       descriptionTurnIndex: 0,
       aiGuesses: new Map(),
       aiGuessWinners: [],
+      alivePlayerIds,
+      cycleNumber: 1,
     };
 
     this.games.set(roomCode, gameState);
@@ -254,6 +268,43 @@ class GameManager {
     return this.games.get(roomCode);
   }
 
+  // Get IDs of players still in the game (for multi-cycle)
+  getAlivePlayerIds(roomCode: string): string[] {
+    const game = this.games.get(roomCode);
+    if (!game) return [];
+    return game.alivePlayerIds ?? Array.from(game.players.keys());
+  }
+
+  // Check if a player is still in the game
+  isPlayerAlive(roomCode: string, playerId: string): boolean {
+    const alive = this.getAlivePlayerIds(roomCode);
+    return alive.includes(playerId);
+  }
+
+  // Start a new cycle: reset description/voting for alive players, back to DESCRIPTION phase
+  startNewCycle(roomCode: string): void {
+    const game = this.games.get(roomCode);
+    if (!game) return;
+
+    const alive = game.alivePlayerIds ?? Array.from(game.players.keys());
+    game.descriptionTurnOrder = shuffleArray([...alive]);
+    game.descriptionTurnIndex = 0;
+
+    for (const playerId of alive) {
+      const p = game.players.get(playerId);
+      if (p) {
+        p.description = '';
+        p.voteTarget = '';
+        p.hasSubmittedDescription = false;
+        p.hasVoted = false;
+      }
+    }
+
+    game.phase = GamePhase.DESCRIPTION;
+    game.cycleNumber = (game.cycleNumber ?? 1) + 1;
+    console.log(`Game ${roomCode} started new cycle ${game.cycleNumber}`);
+  }
+
   // Get filtered view for a specific player (hides other players' secrets)
   getPlayerView(roomCode: string, playerId: string, showResults: boolean = false): PlayerGameView | null {
     const game = this.games.get(roomCode);
@@ -262,6 +313,7 @@ class GameManager {
     const myPlayer = game.players.get(playerId);
     if (!myPlayer) return null;
 
+    const alive = game.alivePlayerIds ?? Array.from(game.players.keys());
     const players = Array.from(game.players.values()).map(p => ({
       id: p.id,
       name: p.name,
@@ -273,6 +325,7 @@ class GameManager {
       voteTarget: showResults ? p.voteTarget : undefined,
       role: showResults ? p.role : undefined,
       word: showResults ? p.word : undefined,
+      isEliminated: !alive.includes(p.id),
     }));
 
     return {
@@ -340,10 +393,11 @@ class GameManager {
     return game.descriptionTurnOrder[game.descriptionTurnIndex];
   }
 
-  // Submit description for a player (only valid if it's their turn)
+  // Submit description for a player (only valid if it's their turn and they're alive)
   submitDescription(roomCode: string, playerId: string, description: string): boolean {
     const game = this.games.get(roomCode);
     if (!game || game.phase !== GamePhase.DESCRIPTION) return false;
+    if (!this.isPlayerAlive(roomCode, playerId)) return false;
 
     const currentTurnId = this.getCurrentTurnPlayerId(roomCode);
     if (currentTurnId !== playerId) return false;
@@ -376,10 +430,12 @@ class GameManager {
       .every(p => p.hasSubmittedDescription);
   }
 
-  // Submit vote for a player
+  // Submit vote for a player (both voter and target must be alive)
   submitVote(roomCode: string, playerId: string, voteTarget: string): boolean {
     const game = this.games.get(roomCode);
     if (!game || game.phase !== GamePhase.VOTING) return false;
+    if (!this.isPlayerAlive(roomCode, playerId)) return false;
+    if (!this.isPlayerAlive(roomCode, voteTarget)) return false;
 
     const player = game.players.get(playerId);
     if (!player) return false;
@@ -399,13 +455,14 @@ class GameManager {
     return Array.from(game.players.values()).every(p => p.hasVoted);
   }
 
-  // Check if all human players have voted
+  // Check if all alive human players have voted
   allHumanVotesSubmitted(roomCode: string): boolean {
     const game = this.games.get(roomCode);
     if (!game) return false;
 
+    const alive = game.alivePlayerIds ?? Array.from(game.players.keys());
     return Array.from(game.players.values())
-      .filter(p => p.isHuman)
+      .filter(p => p.isHuman && alive.includes(p.id))
       .every(p => p.hasVoted);
   }
 
@@ -462,12 +519,12 @@ class GameManager {
     console.log(`Game deleted for room ${roomCode}`);
   }
 
-  // Calculate voting results
-  calculateVotingResults(roomCode: string): GameResults | null {
+  // Calculate voting results; applies elimination and optionally starts new cycle
+  calculateVotingResults(roomCode: string): VotingResultsWithOutcome | null {
     const game = this.games.get(roomCode);
     if (!game) return null;
 
-    // Count votes
+    // Count votes (only alive players' votes count; current game has everyone voting)
     const voteCounts = new Map<string, number>();
     for (const player of game.players.values()) {
       if (player.voteTarget) {
@@ -489,10 +546,36 @@ class GameManager {
     const undercoverPlayer = Array.from(game.players.values()).find(p => p.role === Role.UNDERCOVER)!;
     const aiPlayer = game.players.get(AI_PLAYER_ID)!;
 
-    // Civilians win if the Undercover was eliminated
-    const civiliansWon = eliminatedPlayer?.role === Role.UNDERCOVER;
-    
     game.eliminatedPlayerId = eliminatedId || undefined;
+
+    let civiliansWon: boolean;
+    let outcome: VotingOutcome;
+
+    if (eliminatedPlayer?.role === Role.UNDERCOVER) {
+      // Undercover eliminated: civilians win, game ends
+      civiliansWon = true;
+      outcome = 'game_over';
+      // Do not change alivePlayerIds
+    } else if (eliminatedPlayer?.role === Role.CIVILIAN) {
+      // Civilian eliminated: remove from alive
+      game.alivePlayerIds = (game.alivePlayerIds ?? Array.from(game.players.keys())).filter(id => id !== eliminatedId);
+      const aliveCivilians = game.alivePlayerIds.filter(id => game.players.get(id)?.role === Role.CIVILIAN).length;
+      if (aliveCivilians <= 1) {
+        // Only 1 civilian left (and 1 undercover): undercover wins
+        civiliansWon = false;
+        outcome = 'game_over';
+      } else {
+        // 2+ civilians still alive: new cycle
+        civiliansWon = false; // round lost for civilians but game continues
+        this.startNewCycle(roomCode);
+        outcome = 'new_cycle';
+      }
+    } else {
+      // No one eliminated (tie) or invalid
+      civiliansWon = false;
+      outcome = 'game_over';
+    }
+
     game.civiliansWon = civiliansWon;
 
     const voteCountsArray = Array.from(voteCounts.entries()).map(([playerId, votes]) => ({
@@ -509,7 +592,7 @@ class GameManager {
       voteTarget: p.voteTarget,
     }));
 
-    console.log(`Voting results for ${roomCode}: Eliminated=${eliminatedPlayer?.name}, CiviliansWon=${civiliansWon}`);
+    console.log(`Voting results for ${roomCode}: Eliminated=${eliminatedPlayer?.name}, CiviliansWon=${civiliansWon}, outcome=${outcome}`);
 
     return {
       eliminatedPlayer: eliminatedPlayer ? {
@@ -529,6 +612,7 @@ class GameManager {
       },
       voteCounts: voteCountsArray,
       allPlayers,
+      outcome,
     };
   }
 

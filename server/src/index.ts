@@ -45,6 +45,7 @@ function clearAIDiscussionTimeouts(roomCode: string): void {
 async function tryAIDiscussionMessage(roomCode: string): Promise<void> {
   const game = gameManager.getGame(roomCode);
   if (!game || game.phase !== GamePhase.DISCUSSION) return;
+  if (!gameManager.isPlayerAlive(roomCode, AI_PLAYER_ID)) return;
   const aiPlayer = gameManager.getAIPlayer(roomCode);
   const aiPersona = gameManager.getAIPersona(roomCode);
   if (!aiPlayer || !aiPersona) return;
@@ -298,13 +299,17 @@ io.on('connection', (socket) => {
       message: 'Turn-based descriptions! Wait for your turn, then describe your word.',
     });
 
-    // If first turn is AI, run AI turn(s) immediately
+    // If first turn is AI, run AI turn(s) immediately (skip if AI eliminated)
     if (firstTurnId === AI_PLAYER_ID) {
       (async () => {
         let nextPlayerId: string | null = firstTurnId;
         while (nextPlayerId === AI_PLAYER_ID) {
           const game = gameManager.getGame(roomCode);
           if (!game) return;
+          if (!gameManager.isPlayerAlive(roomCode, AI_PLAYER_ID)) {
+            nextPlayerId = gameManager.advanceDescriptionTurn(roomCode);
+            continue;
+          }
           const aiPlayer = gameManager.getAIPlayer(roomCode);
           const aiPersona = gameManager.getAIPersona(roomCode);
           if (!aiPlayer || !aiPersona) {
@@ -388,6 +393,10 @@ io.on('connection', (socket) => {
       socket.emit('game-error', { error: 'Game not found' });
       return;
     }
+    if (!gameManager.isPlayerAlive(roomCode, socket.id)) {
+      socket.emit('game-error', { error: 'You have been eliminated and cannot act.' });
+      return;
+    }
 
     const success = gameManager.submitDescription(roomCode, socket.id, description);
     if (!success) {
@@ -406,8 +415,12 @@ io.on('connection', (socket) => {
     // Advance to next turn
     let nextPlayerId = gameManager.advanceDescriptionTurn(roomCode);
 
-    // If next turn is AI, run AI turn(s) until next is human or phase complete
+    // If next turn is AI, run AI turn(s) until next is human or phase complete (skip if AI eliminated)
     while (nextPlayerId === AI_PLAYER_ID) {
+      if (!gameManager.isPlayerAlive(roomCode, AI_PLAYER_ID)) {
+        nextPlayerId = gameManager.advanceDescriptionTurn(roomCode);
+        continue;
+      }
       io.to(roomCode).emit('description-turn-started', {
         currentTurnPlayerId: AI_PLAYER_ID,
         currentTurnPlayerName: game.players.get(AI_PLAYER_ID)?.name,
@@ -521,6 +534,10 @@ io.on('connection', (socket) => {
       socket.emit('game-error', { error: 'You are not in this game' });
       return;
     }
+    if (!gameManager.isPlayerAlive(roomCode, socket.id)) {
+      socket.emit('game-error', { error: 'You have been eliminated and cannot act.' });
+      return;
+    }
     const trimmed = (message || '').trim().slice(0, MAX_DISCUSSION_MESSAGE_LENGTH);
     if (!trimmed) return;
     const list = discussionMessagesByRoom.get(roomCode) || [];
@@ -572,6 +589,20 @@ io.on('connection', (socket) => {
   socket.on('submit-vote', async ({ roomCode, voteTarget }: { roomCode: string; voteTarget: string }) => {
     console.log(`${socket.id} voting for ${voteTarget} in room ${roomCode}`);
     
+    const game = gameManager.getGame(roomCode);
+    if (!game) {
+      socket.emit('game-error', { error: 'Game not found' });
+      return;
+    }
+    if (!gameManager.isPlayerAlive(roomCode, socket.id)) {
+      socket.emit('game-error', { error: 'You have been eliminated and cannot act.' });
+      return;
+    }
+    if (!gameManager.isPlayerAlive(roomCode, voteTarget)) {
+      socket.emit('game-error', { error: 'Cannot vote for an eliminated player.' });
+      return;
+    }
+
     const success = gameManager.submitVote(roomCode, socket.id, voteTarget);
     if (!success) {
       socket.emit('game-error', { error: 'Failed to submit vote' });
@@ -579,16 +610,126 @@ io.on('connection', (socket) => {
     }
 
     // Notify all players that this player has voted (but not WHO they voted for)
-    const game = gameManager.getGame(roomCode);
-    if (game) {
-      const player = game.players.get(socket.id);
-      io.to(roomCode).emit('player-submitted-vote', {
-        playerId: socket.id,
-        playerName: player?.name,
-      });
+    const player = game.players.get(socket.id);
+    io.to(roomCode).emit('player-submitted-vote', {
+      playerId: socket.id,
+      playerName: player?.name,
+    });
 
-      // Check if all humans have voted - then trigger AI
+    // Check if all humans have voted - then trigger AI (or compute results if AI eliminated)
       if (gameManager.allHumanVotesSubmitted(roomCode)) {
+        if (!gameManager.isPlayerAlive(roomCode, AI_PLAYER_ID)) {
+          // AI eliminated - compute results directly from alive players' votes
+          const results = gameManager.calculateVotingResults(roomCode);
+          if (results) {
+            const currentGame = gameManager.getGame(roomCode)!;
+            const isNewCycle = results.outcome === 'new_cycle';
+            if (isNewCycle) {
+              const firstTurnId = gameManager.getCurrentTurnPlayerId(roomCode);
+              const nextTurnId = gameManager.getNextTurnPlayerId(roomCode);
+              const firstPlayer = firstTurnId ? currentGame.players.get(firstTurnId) : null;
+              const nextPlayer = nextTurnId ? currentGame.players.get(nextTurnId) : null;
+              io.to(roomCode).emit('new-cycle-started', {
+                cycleNumber: currentGame.cycleNumber,
+                alivePlayerIds: currentGame.alivePlayerIds,
+                descriptionTurnOrder: currentGame.descriptionTurnOrder,
+                eliminatedPlayer: results.eliminatedPlayer,
+                currentTurnPlayerId: firstTurnId,
+                currentTurnPlayerName: firstPlayer?.name,
+                nextTurnPlayerId: nextTurnId ?? null,
+                nextTurnPlayerName: nextPlayer?.name ?? null,
+              });
+              io.to(roomCode).emit('game-phase-changed', {
+                phase: GamePhase.DESCRIPTION,
+                message: 'New round! Describe your word.',
+              });
+              for (const [playerId, p] of currentGame.players) {
+                if (p.isHuman && gameManager.isPlayerAlive(roomCode, playerId)) {
+                  const playerView = gameManager.getPlayerView(roomCode, playerId, false);
+                  if (playerView) io.to(playerId).emit('game-state-updated', playerView);
+                }
+              }
+              io.to(roomCode).emit('description-turn-started', {
+                currentTurnPlayerId: firstTurnId,
+                currentTurnPlayerName: firstPlayer?.name,
+                nextTurnPlayerId: nextTurnId ?? null,
+                nextTurnPlayerName: nextPlayer?.name ?? null,
+                transcript: [],
+                aiThinking: firstTurnId === AI_PLAYER_ID,
+              });
+              if (firstTurnId === AI_PLAYER_ID) {
+                (async () => {
+                  let nextPlayerIdInner: string | null = firstTurnId;
+                  while (nextPlayerIdInner === AI_PLAYER_ID) {
+                    const g = gameManager.getGame(roomCode);
+                    if (!g) return;
+                    if (!gameManager.isPlayerAlive(roomCode, AI_PLAYER_ID)) {
+                      nextPlayerIdInner = gameManager.advanceDescriptionTurn(roomCode);
+                      continue;
+                    }
+                    const aiPlayer = gameManager.getAIPlayer(roomCode);
+                    const aiPersona = gameManager.getAIPersona(roomCode);
+                    if (!aiPlayer || !aiPersona) {
+                      io.to(roomCode).emit('game-error', { error: 'AI configuration error' });
+                      return;
+                    }
+                    try {
+                      const otherPlayerNames = Array.from(g.players.values())
+                        .filter(p => p.id !== AI_PLAYER_ID)
+                        .map(p => p.name);
+                      const turnIndex = g.descriptionTurnIndex;
+                      const previousDescriptions = gameManager.getDescriptionsSoFar(roomCode);
+                      const isUndercover = aiPlayer.role === Role.UNDERCOVER;
+                      const aiResponse = await generateAIDescription(
+                        aiPlayer.word, aiPlayer.name, otherPlayerNames, aiPersona, isUndercover,
+                        turnIndex, previousDescriptions
+                      );
+                      gameManager.submitDescription(roomCode, AI_PLAYER_ID, aiResponse.content);
+                      io.to(roomCode).emit('player-submitted-description', {
+                        playerId: AI_PLAYER_ID,
+                        playerName: aiPlayer.name,
+                        description: aiResponse.content,
+                      });
+                      nextPlayerIdInner = gameManager.advanceDescriptionTurn(roomCode);
+                    } catch (err) {
+                      console.error('Error generating AI description:', err);
+                      io.to(roomCode).emit('game-error', { error: 'AI failed to generate description' });
+                      return;
+                    }
+                  }
+                  const g = gameManager.getGame(roomCode);
+                  if (g && nextPlayerIdInner) {
+                    const nextP = g.players.get(nextPlayerIdInner);
+                    const afterNextId = gameManager.getNextTurnPlayerId(roomCode);
+                    const afterNextP = afterNextId ? g.players.get(afterNextId) : null;
+                    io.to(roomCode).emit('description-turn-started', {
+                      currentTurnPlayerId: nextPlayerIdInner,
+                      currentTurnPlayerName: nextP?.name,
+                      nextTurnPlayerId: afterNextId ?? null,
+                      nextTurnPlayerName: afterNextP?.name ?? null,
+                      transcript: gameManager.getDescriptionsSoFar(roomCode),
+                      aiThinking: false,
+                    });
+                  }
+                })();
+              }
+              console.log(`Voting results sent for room ${roomCode} (new cycle, AI eliminated)`);
+            } else {
+              gameManager.setPhase(roomCode, GamePhase.RESULTS);
+              io.to(roomCode).emit('voting-results', {
+                ...results,
+                phase: GamePhase.RESULTS,
+              });
+              for (const [playerId, p] of currentGame.players) {
+                if (p.isHuman) {
+                  const playerView = gameManager.getPlayerView(roomCode, playerId, true);
+                  if (playerView) io.to(playerId).emit('game-state-updated', playerView);
+                }
+              }
+              console.log(`Voting results sent for room ${roomCode} (game over, AI eliminated)`);
+            }
+          }
+        } else {
         console.log(`All humans voted for room ${roomCode}. Triggering AI vote...`);
         
         io.to(roomCode).emit('all-humans-submitted-votes', {
@@ -629,37 +770,125 @@ io.on('connection', (socket) => {
             
             console.log(`AI (${aiPlayer.name}) voted for: ${aiVoteResponse.vote_target} (ID: ${voteTargetId})`);
 
-            // Calculate results
+            // Calculate results (may call startNewCycle and set phase to DESCRIPTION)
             const results = gameManager.calculateVotingResults(roomCode);
             
             if (results) {
-              // Move to results phase
-              gameManager.setPhase(roomCode, GamePhase.RESULTS);
+              const currentGame = gameManager.getGame(roomCode)!;
+              const isNewCycle = results.outcome === 'new_cycle';
 
-              // Send results to all players
-              io.to(roomCode).emit('voting-results', {
-                ...results,
-                phase: GamePhase.RESULTS,
-              });
-
-              // Send updated game state with all info revealed
-              for (const [playerId, p] of game.players) {
-                if (p.isHuman) {
-                  const playerView = gameManager.getPlayerView(roomCode, playerId, true);
-                  if (playerView) {
-                    io.to(playerId).emit('game-state-updated', playerView);
+              if (isNewCycle) {
+                // Phase already DESCRIPTION from startNewCycle - do NOT emit voting-results as game over
+                const firstTurnId = gameManager.getCurrentTurnPlayerId(roomCode);
+                const nextTurnId = gameManager.getNextTurnPlayerId(roomCode);
+                const firstPlayer = firstTurnId ? currentGame.players.get(firstTurnId) : null;
+                const nextPlayer = nextTurnId ? currentGame.players.get(nextTurnId) : null;
+                io.to(roomCode).emit('new-cycle-started', {
+                  cycleNumber: currentGame.cycleNumber,
+                  alivePlayerIds: currentGame.alivePlayerIds,
+                  descriptionTurnOrder: currentGame.descriptionTurnOrder,
+                  eliminatedPlayer: results.eliminatedPlayer,
+                  currentTurnPlayerId: firstTurnId,
+                  currentTurnPlayerName: firstPlayer?.name,
+                  nextTurnPlayerId: nextTurnId ?? null,
+                  nextTurnPlayerName: nextPlayer?.name ?? null,
+                });
+                io.to(roomCode).emit('game-phase-changed', {
+                  phase: GamePhase.DESCRIPTION,
+                  message: 'New round! Describe your word.',
+                });
+                for (const [playerId, p] of currentGame.players) {
+                  if (p.isHuman && gameManager.isPlayerAlive(roomCode, playerId)) {
+                    const playerView = gameManager.getPlayerView(roomCode, playerId, false);
+                    if (playerView) io.to(playerId).emit('game-state-updated', playerView);
                   }
                 }
+                io.to(roomCode).emit('description-turn-started', {
+                  currentTurnPlayerId: firstTurnId,
+                  currentTurnPlayerName: firstPlayer?.name,
+                  nextTurnPlayerId: nextTurnId ?? null,
+                  nextTurnPlayerName: nextPlayer?.name ?? null,
+                  transcript: [],
+                  aiThinking: firstTurnId === AI_PLAYER_ID,
+                });
+                if (firstTurnId === AI_PLAYER_ID) {
+                  (async () => {
+                    let nextPlayerIdInner: string | null = firstTurnId;
+                    while (nextPlayerIdInner === AI_PLAYER_ID) {
+                      const g = gameManager.getGame(roomCode);
+                      if (!g) return;
+                      if (!gameManager.isPlayerAlive(roomCode, AI_PLAYER_ID)) {
+                        nextPlayerIdInner = gameManager.advanceDescriptionTurn(roomCode);
+                        continue;
+                      }
+                      const aiPlayer = gameManager.getAIPlayer(roomCode);
+                      const aiPersona = gameManager.getAIPersona(roomCode);
+                      if (!aiPlayer || !aiPersona) {
+                        io.to(roomCode).emit('game-error', { error: 'AI configuration error' });
+                        return;
+                      }
+                      try {
+                        const otherPlayerNames = Array.from(g.players.values())
+                          .filter(p => p.id !== AI_PLAYER_ID)
+                          .map(p => p.name);
+                        const turnIndex = g.descriptionTurnIndex;
+                        const previousDescriptions = gameManager.getDescriptionsSoFar(roomCode);
+                        const isUndercover = aiPlayer.role === Role.UNDERCOVER;
+                        const aiResponse = await generateAIDescription(
+                          aiPlayer.word, aiPlayer.name, otherPlayerNames, aiPersona, isUndercover,
+                          turnIndex, previousDescriptions
+                        );
+                        gameManager.submitDescription(roomCode, AI_PLAYER_ID, aiResponse.content);
+                        io.to(roomCode).emit('player-submitted-description', {
+                          playerId: AI_PLAYER_ID,
+                          playerName: aiPlayer.name,
+                          description: aiResponse.content,
+                        });
+                        nextPlayerIdInner = gameManager.advanceDescriptionTurn(roomCode);
+                      } catch (err) {
+                        console.error('Error generating AI description:', err);
+                        io.to(roomCode).emit('game-error', { error: 'AI failed to generate description' });
+                        return;
+                      }
+                    }
+                    const g = gameManager.getGame(roomCode);
+                    if (g && nextPlayerIdInner) {
+                      const nextP = g.players.get(nextPlayerIdInner);
+                      const afterNextId = gameManager.getNextTurnPlayerId(roomCode);
+                      const afterNextP = afterNextId ? g.players.get(afterNextId) : null;
+                      io.to(roomCode).emit('description-turn-started', {
+                        currentTurnPlayerId: nextPlayerIdInner,
+                        currentTurnPlayerName: nextP?.name,
+                        nextTurnPlayerId: afterNextId ?? null,
+                        nextTurnPlayerName: afterNextP?.name ?? null,
+                        transcript: gameManager.getDescriptionsSoFar(roomCode),
+                        aiThinking: false,
+                      });
+                    }
+                  })();
+                }
+                console.log(`Voting results sent for room ${roomCode} (new cycle)`);
+              } else {
+                gameManager.setPhase(roomCode, GamePhase.RESULTS);
+                io.to(roomCode).emit('voting-results', {
+                  ...results,
+                  phase: GamePhase.RESULTS,
+                });
+                for (const [playerId, p] of currentGame.players) {
+                  if (p.isHuman) {
+                    const playerView = gameManager.getPlayerView(roomCode, playerId, true);
+                    if (playerView) io.to(playerId).emit('game-state-updated', playerView);
+                  }
+                }
+                console.log(`Voting results sent for room ${roomCode} (game over)`);
               }
-
-              console.log(`Voting results sent for room ${roomCode}`);
             }
           } catch (error) {
             console.error('Error generating AI vote:', error);
             io.to(roomCode).emit('game-error', { error: 'AI failed to vote' });
           }
         }
-      }
+        }
     }
   });
 
