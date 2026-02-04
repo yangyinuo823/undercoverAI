@@ -61,14 +61,22 @@ npm install
 cd ..
 ```
 
-### Step 4: Configure API Key
+### Step 4: Configure Environment Variables
 
-Create or edit the `.env` file in the `server` folder:
+Create or edit the `.env` file in the `server` folder (you can copy from `.env.example`):
 
 ```bash
 # server/.env
 GEMINI_API_KEY=your_gemini_api_key_here
+
+# Optional: Configure the server port (default is 3001)
+PORT=3001
 ```
+
+**To control which port the server listens on:**
+- Set the `PORT` environment variable in `server/.env`
+- Or set it when starting the server: `PORT=8080 npm run dev`
+- Default port: `3001`
 
 ## 🚀 Running the App
 
@@ -90,6 +98,30 @@ npm run dev
 ```
 
 The app will open at `http://localhost:5173` (or similar port shown in terminal)
+
+## ⚙️ Configuration
+
+### Server Port Configuration
+
+The backend server port can be controlled in several ways:
+
+1. **Environment Variable in `.env` file** (Recommended):
+   ```bash
+   # server/.env
+   PORT=3001
+   ```
+
+2. **Command Line**:
+   ```bash
+   cd server
+   PORT=8080 npm run dev
+   ```
+
+3. **Default Behavior**:
+   - If no `PORT` is specified, the server defaults to port `3001`
+   - Configuration is in `server/src/index.ts` line 516
+
+**Note:** If you change the server port, make sure to update the frontend's socket connection URL to match the new port.
 
 ## 🎲 How to Play
 

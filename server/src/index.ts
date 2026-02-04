@@ -513,6 +513,10 @@ io.on('connection', (socket) => {
 });
 
 // Start server
+// Port configuration: 
+// - Set via PORT environment variable in server/.env file (e.g., PORT=3001)
+// - Or via command line: PORT=8080 npm run dev
+// - Default: 3001 if not specified
 const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
