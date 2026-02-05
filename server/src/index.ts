@@ -11,10 +11,18 @@ import { generateAIDescription, generateAIVote, generateAIDiscussionMessage } fr
 const app = express();
 const httpServer = createServer(app);
 
-// Configure CORS for the frontend
+// Configure CORS: allow localhost (dev) + CORS_ORIGINS env (production client URLs, comma-separated)
+const corsOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  ...(process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map((o: string) => o.trim()) : []),
+];
 const io = new Server(httpServer, {
   cors: {
-    origin: ['http://localhost:3000', 'http://localhost:5173'],
+    origin: (origin, cb) => {
+      if (!origin || corsOrigins.includes(origin)) return cb(null, true);
+      return cb(new Error('Not allowed by CORS'));
+    },
     methods: ['GET', 'POST'],
   },
 });
@@ -790,8 +798,8 @@ io.on('connection', (socket) => {
   });
 });
 
-// Start server
-const PORT = process.env.PORT || 3001;
-httpServer.listen(PORT, () => {
+// Start server (0.0.0.0 so it accepts connections from other machines)
+const PORT = Number(process.env.PORT) || 3001;
+httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });
