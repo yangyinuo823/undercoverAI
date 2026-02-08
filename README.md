@@ -2,7 +2,7 @@
 
 A multiplayer social deduction game where humans play against an AI player powered by Google Gemini. Can you identify the Undercover? Can you spot the AI? Even if you lose, you might still win!
 
-> **Branch: v3_multiter** — In-turn descriptions, free discussion, and multi-cycle voting.
+> **Branch: v3b_updateUI** — In-turn descriptions, free discussion, multi-cycle voting, and **all human players** join the "Guess the AI" phase (not just the losing team).
 
 ## 🎮 Game Overview
 
@@ -23,6 +23,7 @@ A multiplayer social deduction game where humans play against an AI player power
    - **If Undercover is voted out** → Civilians win! Game ends.
    - **If a Civilian is voted out** → The game continues with the remaining players. A new round starts (Round 2, 3, …) back at the Description phase.
    - **If only 1 Civilian remains** → Undercover wins! Game ends.
+5. **Guess the AI** — **All human players** (whether they won or lost the round) guess who the AI player was. The AI's identity is revealed only after everyone has submitted their guess. Correct guessers are credited as "AI Spotters."
 
 **Eliminated players** are muted for the rest of the game and cannot describe, chat, or vote in later rounds.
 
@@ -33,13 +34,16 @@ A multiplayer social deduction game where humans play against an AI player power
 | **Civilians** | Vote out the Undercover |
 | **Undercover** | Survive until only 1 Civilian remains (or tie) |
 
-### 🎯 Second Chance - Guess the AI!
+### 🎯 Guess the AI (all human players)
 
-**Even if you lose, you can still become an individual winner!**
+**Everyone gets to guess who the AI is!**
 
-If you're on the losing team, you get one chance to guess which player was the AI. Guess correctly, and you redeem yourself as a winner!
+After the round ends (Civilians win or Undercover wins), **all human players** — not just the losing team — take part in the "Guess the AI" phase. Each player submits who they think the AI player is. The AI's identity is revealed only after everyone has guessed.
 
-This adds an extra layer of strategy - pay attention to how everyone describes, discusses, and votes. The AI tries hard to blend in, but can you spot patterns in its behavior?
+- **Round outcome**: Civilians win (Undercover voted out) or Undercover wins (survived). You see whether you won or lost the Undercover game.
+- **AI guess**: All humans then guess who the AI was. Correct guessers are credited as "AI Spotters" regardless of whether they won or lost the round.
+
+This adds an extra layer of strategy — pay attention to how everyone describes, discusses, and votes. The AI tries hard to blend in; can you spot it?
 
 ## 📦 Installation
 
@@ -109,7 +113,7 @@ The app will open at `http://localhost:3000` (or similar port shown in terminal)
 6. **Discussion phase** — Chat freely with others to share suspicions and debate who might be the Undercover.
 7. **Voting phase** — Vote for who you think has the different word. Only alive players can vote; vote targets are alive players only.
 8. **See results** — Who was eliminated? Who voted for whom? If a Civilian was voted out, a new round begins (Round 2, 3, …) with the remaining players.
-9. **Guess the AI** if you lost — get a second chance to win!
+9. **Guess the AI** — All human players (winners and losers) guess who the AI was. The AI is revealed only after everyone has guessed. Correct guessers are shown as "AI Spotters."
 
 ## 🛠️ Tech Stack
 
