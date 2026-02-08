@@ -338,7 +338,7 @@ const App: React.FC = () => {
       case GamePhase.SETUP:
         return (
           <div className="text-center">
-            <h2 className="text-2xl font-bold mb-4">Undercover</h2>
+            <h2 className="text-2xl font-bold mb-4">Undercover AI</h2>
             <p className="mb-6">Each game uses a random pair of related words. 3 Civilians share one word, 1 Undercover has a different word. Find the Undercover!</p>
             <Button onClick={startGame} disabled={isPlayer4Thinking}>
               Start Game
@@ -597,9 +597,9 @@ const App: React.FC = () => {
         <div className="w-full max-w-6xl mx-auto flex flex-col flex-grow rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
           <header className="w-full text-center py-6">
             <h1 className="text-4xl font-extrabold text-blue-700 dark:text-blue-400">
-              Undercover
+              Undercover AI
             </h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-2">A Social Deduction Game with AI</p>
+            <p className="text-gray-600 dark:text-gray-400 mt-2">Play a party game and find the hidden AI player!</p>
           </header>
           <main className="flex-grow w-full max-w-2xl mx-auto p-6 bg-white dark:bg-gray-800 rounded-lg shadow-xl">
             <Lobby />
@@ -627,14 +627,14 @@ const App: React.FC = () => {
           {isNewCycle && (
             <div className="mb-4 p-3 bg-amber-100 dark:bg-amber-900 text-amber-900 dark:text-amber-100 rounded-lg text-center">
               {gameState.votingResults?.eliminatedPlayer ? (
-                <><strong>{gameState.votingResults.eliminatedPlayer.name}</strong> was eliminated. New round — describe your word in order.</>
+                <>A civilian was voted out. Undercover still in the game — new round! Describe your word in order.</>
               ) : (
                 <>It&apos;s a tie! No one was eliminated. New round — describe your word in order.</>
               )}
             </div>
           )}
           <div className="mb-6 text-center">
-            <h3 className="text-2xl font-bold">{gameState.cycleNumber ? `Round ${gameState.cycleNumber} — ` : ''}Description Phase (turn-based)</h3>
+            <h3 className="text-2xl font-bold">{gameState.cycleNumber ? `Round ${gameState.cycleNumber} — ` : ''}Description Phase</h3>
             <p className="text-gray-600 dark:text-gray-400">
               Each player describes their word in order. Wait for your turn.
             </p>
@@ -718,25 +718,36 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {/* Player list in speaking order (descriptionTurnOrder) so AI appears in correct position */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {(gameState.descriptionTurnOrder?.length
-              ? gameState.descriptionTurnOrder
-                  .map((pid) => gameState.players.find((p) => p.id === pid))
-                  .filter((p): p is NonNullable<typeof p> => p != null)
-              : shuffledPlayers
-            ).map((player) => (
-              <div key={player.id} className={`p-4 rounded-lg border-2 ${
-                player.isEliminated ? 'bg-gray-200 dark:bg-gray-600 border-gray-400 opacity-75' :
+          {/* Player list: descriptionTurnOrder first (alive), then eliminated, so all 4 always visible */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {(() => {
+              const turnOrder = gameState.descriptionTurnOrder ?? [];
+              const turnSet = new Set(turnOrder);
+              const displayOrder = turnOrder.length > 0
+                ? [...turnOrder, ...gameState.players.map(p => p.id).filter(id => !turnSet.has(id))]
+                : gameState.players.map(p => p.id);
+              return displayOrder
+                .map((pid) => gameState.players.find((p) => p.id === pid))
+                .filter((p): p is NonNullable<typeof p> => p != null);
+            })().map((player) => (
+              <div key={player.id} className={`rounded-lg border-2 overflow-hidden relative ${
+                player.isEliminated ? 'bg-gray-200 dark:bg-gray-600 border-gray-400 opacity-90' :
                 player.id === gameState.myPlayerId ? 'bg-blue-50 dark:bg-blue-900 border-blue-400' : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600'
               }`}>
-                <div className="flex justify-between items-center mb-2">
-                  <h4 className="font-bold">{player.name} {player.id === gameState.myPlayerId && <span className="text-blue-500">(You)</span>} {player.isEliminated && <span className="text-gray-500 text-sm font-normal">— Eliminated</span>}</h4>
-                  {player.isEliminated ? <span className="text-gray-500 text-sm">Eliminated</span> : player.hasSubmittedDescription ? <span className="text-green-500 text-sm">✓</span> : gameState.currentTurnPlayerId === player.id && <span className="text-blue-500 text-sm">— speaking</span>}
+                <div className="p-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <h4 className="font-bold">{player.name} {player.id === gameState.myPlayerId && <span className="text-blue-500">(You)</span>}</h4>
+                    {!player.isEliminated && (player.hasSubmittedDescription ? <span className="text-green-500 text-sm">✓</span> : gameState.currentTurnPlayerId === player.id && <span className="text-blue-500 text-sm">— speaking</span>)}
+                  </div>
+                  <div className={player.description ? 'text-gray-800 dark:text-gray-200' : 'text-gray-500 italic'}>
+                    {player.description ? `"${player.description}"` : player.hasSubmittedDescription ? '(submitted)' : player.isEliminated ? '—' : 'Waiting for turn...'}
+                  </div>
                 </div>
-                <div className={player.description ? 'text-gray-800 dark:text-gray-200' : 'text-gray-500 italic'}>
-                  {player.description ? `"${player.description}"` : player.hasSubmittedDescription ? '(submitted)' : player.isEliminated ? '—' : 'Waiting for turn...'}
-                </div>
+                {player.isEliminated && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-gray-200/80 dark:bg-gray-600/80 rounded-lg">
+                    <span className="text-red-600 dark:text-red-500 font-extrabold text-2xl sm:text-3xl uppercase tracking-wider transform -rotate-12 select-none">Eliminated</span>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -767,7 +778,7 @@ const App: React.FC = () => {
           <div className="mb-6 text-center">
             <h3 className="text-2xl font-bold">{gameState.cycleNumber ? `Round ${gameState.cycleNumber} — ` : ''}Discussion Phase</h3>
             <p className="text-gray-600 dark:text-gray-400">
-              Discuss who might be Undercover. 30 seconds.
+              Discuss who might be Undercover. 45 seconds.
             </p>
           </div>
 
@@ -858,7 +869,6 @@ const App: React.FC = () => {
     // VOTING PHASE
     if (gameState.phase === 'voting') {
       const alivePlayers = gameState.players.filter(p => !p.isEliminated);
-      const eliminatedPlayers = gameState.players.filter(p => p.isEliminated);
       const allAliveHumansVoted = alivePlayers.filter(p => p.id !== 'AI_PLAYER').every(p => p.hasVoted);
       const canVote = myPlayer && !myPlayer.isEliminated;
       
@@ -881,17 +891,44 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {/* Alive players — vote targets (clickable) */}
-          {canVote && (
-            <div className="mb-4">
-              <h4 className="font-bold mb-2 text-gray-700 dark:text-gray-300">Vote for a player:</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                {alivePlayers.map((player) => (
-                  <div key={player.id} className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                    selectedVote === player.id ? 'border-red-500 bg-red-50 dark:bg-red-900' :
-                    player.id === gameState.myPlayerId ? 'bg-blue-50 dark:bg-blue-900 border-blue-400' : 
-                    'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 hover:border-red-300'
-                  }`} onClick={() => !hasVoted && player.id !== gameState.myPlayerId && setSelectedVote(player.id)}>
+          {/* All 4 players in one grid: alive = vote targets, eliminated = red strip + grey, not clickable */}
+          <div className="mb-4">
+            <h4 className="font-bold mb-2 text-gray-700 dark:text-gray-300">Vote for a player:</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+              {(() => {
+                const turnOrder = gameState.descriptionTurnOrder ?? [];
+                const turnSet = new Set(turnOrder);
+                const displayOrder = turnOrder.length > 0
+                  ? [...turnOrder, ...gameState.players.map(p => p.id).filter(id => !turnSet.has(id))]
+                  : gameState.players.map(p => p.id);
+                return displayOrder
+                  .map((pid) => gameState.players.find((p) => p.id === pid))
+                  .filter((p): p is NonNullable<typeof p> => p != null);
+              })().map((player) =>
+                player.isEliminated ? (
+                  <div key={player.id} className="rounded-lg border-2 overflow-hidden relative bg-gray-200 dark:bg-gray-600 border-gray-400 opacity-90 cursor-not-allowed">
+                    <div className="p-4">
+                      <div className="flex justify-between items-center mb-2">
+                        <h4 className="font-bold text-gray-600 dark:text-gray-400">{player.name} {player.id === gameState.myPlayerId && <span className="text-blue-400">(You)</span>}</h4>
+                      </div>
+                      <div className="text-gray-500 dark:text-gray-400">"{player.description}"</div>
+                    </div>
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-gray-200/80 dark:bg-gray-600/80 rounded-lg">
+                      <span className="text-red-600 dark:text-red-500 font-extrabold text-2xl sm:text-3xl uppercase tracking-wider transform -rotate-12 select-none">Eliminated</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    key={player.id}
+                    className={`p-4 rounded-lg border-2 transition-all ${
+                      !canVote ? 'cursor-default opacity-75' : 'cursor-pointer'
+                    } ${
+                      selectedVote === player.id ? 'border-red-500 bg-red-50 dark:bg-red-900' :
+                      player.id === gameState.myPlayerId ? 'bg-blue-50 dark:bg-blue-900 border-blue-400' :
+                      'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 hover:border-red-300'
+                    }`}
+                    onClick={() => canVote && !hasVoted && player.id !== gameState.myPlayerId && setSelectedVote(player.id)}
+                  >
                     <div className="flex justify-between items-center mb-2">
                       <h4 className="font-bold">{player.name} {player.id === gameState.myPlayerId && <span className="text-blue-500">(You)</span>}</h4>
                       {player.hasVoted && <span className="text-green-500 text-sm">✓ Voted</span>}
@@ -899,28 +936,10 @@ const App: React.FC = () => {
                     <div className="text-gray-800 dark:text-gray-200">"{player.description}"</div>
                     {selectedVote === player.id && <div className="mt-2 text-red-600 font-bold">Selected for vote</div>}
                   </div>
-                ))}
-              </div>
+                )
+              )}
             </div>
-          )}
-
-          {/* Eliminated players — greyed out, not clickable */}
-          {eliminatedPlayers.length > 0 && (
-            <div className="mb-4">
-              <h4 className="font-bold mb-2 text-gray-500 dark:text-gray-400">Eliminated:</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {eliminatedPlayers.map((player) => (
-                  <div key={player.id} className="p-4 rounded-lg border-2 bg-gray-200 dark:bg-gray-600 border-gray-400 opacity-75 cursor-not-allowed">
-                    <div className="flex justify-between items-center mb-2">
-                      <h4 className="font-bold text-gray-600 dark:text-gray-400">{player.name} {player.id === gameState.myPlayerId && <span className="text-blue-400">(You)</span>}</h4>
-                      <span className="text-gray-500 text-sm">Eliminated</span>
-                    </div>
-                    <div className="text-gray-500 dark:text-gray-400">"{player.description}"</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          </div>
 
           {canVote && !hasVoted && selectedVote && (
             <div className="text-center">
@@ -976,7 +995,7 @@ const App: React.FC = () => {
           </div>
 
           {/* Player cards - do NOT reveal who is AI until Final Results (Guess the AI phase) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             {shuffleWithSeed<typeof results.allPlayers[0]>(results.allPlayers, roomState.roomCode || '').map(player => (
               <div key={player.id} className={`p-4 rounded-lg border-2 ${
                 player.role === 'Undercover' ? 'border-red-500 bg-red-50 dark:bg-red-900' : 
@@ -1014,7 +1033,7 @@ const App: React.FC = () => {
           </div>
 
           {iNeedToGuess && !hasGuessedAI && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
               {shuffledPlayers.map((player) => (
                 <div key={player.id} className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
                   selectedAIGuess === player.id ? 'border-purple-500 bg-purple-50 dark:bg-purple-900' : 
@@ -1050,10 +1069,10 @@ const App: React.FC = () => {
       const isHuman = gameState.playersWhoNeedToGuessAI.includes(gameState.myPlayerId || '');
 
       const scenarioMessages: Record<string, string> = {
-        'won-guessed': 'You won the Undercover game — and you found the correct AI player! Double win! Congrats!',
-        'lost-guessed': "You lost the Undercover game — but you found the correct AI player! You're a great AI spotter!",
-        'won-notguessed': "You won the Undercover game — but you didn't detect the AI player. That AI was too cunning!",
-        'lost-notguessed': "You lost the Undercover game — and you didn't detect the AI player. Double oof! Good luck next game!",
+        'won-guessed': 'You won the Undercover AI game — and you found the correct AI player! Double win! Congrats!',
+        'lost-guessed': "You lost the Undercover AI game — but you found the correct AI player! You're a great AI spotter!",
+        'won-notguessed': "You won the Undercover AI game — but you didn't detect the AI player. That AI was too cunning!",
+        'lost-notguessed': "You lost the Undercover AI game — and you didn't detect the AI player. Double oof! Good luck next game!",
       };
       const scenarioKey = wonRound ? (iGuessedCorrectly ? 'won-guessed' : 'won-notguessed') : (iGuessedCorrectly ? 'lost-guessed' : 'lost-notguessed');
       const scenarioMessage = scenarioMessages[scenarioKey];
@@ -1113,7 +1132,7 @@ const App: React.FC = () => {
     <div className="min-h-screen flex flex-col items-center p-6 bg-gradient-to-br from-slate-100 via-gray-50 to-slate-200 dark:from-slate-900 dark:via-gray-900 dark:to-slate-800 text-gray-800 dark:text-gray-200">
       <div className="w-full max-w-6xl mx-auto flex flex-col flex-grow rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
         <header className="w-full text-center py-6">
-          <h1 className="text-4xl font-extrabold text-blue-700 dark:text-blue-400">Undercover</h1>
+          <h1 className="text-4xl font-extrabold text-blue-700 dark:text-blue-400">Undercover AI</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">Room: {roomState.roomCode}</p>
         </header>
         <main className="flex-grow w-full max-w-4xl mx-auto p-6 bg-white dark:bg-gray-800 rounded-lg shadow-xl">

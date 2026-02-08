@@ -20,7 +20,7 @@ const io = new Server(httpServer, {
 });
 
 // Discussion phase: messages and timers per room
-const DISCUSSION_DURATION_MS = 30000;
+const DISCUSSION_DURATION_MS = 45000;
 const MAX_DISCUSSION_MESSAGE_LENGTH = 200;
 const discussionMessagesByRoom = new Map<string, Array<{ playerId: string; playerName: string; message: string; timestamp: number }>>();
 const discussionTimersByRoom = new Map<string, NodeJS.Timeout>();
@@ -383,7 +383,7 @@ io.on('connection', (socket) => {
             }
             const t = setTimeout(() => endDiscussionPhase(roomCode), DISCUSSION_DURATION_MS);
             discussionTimersByRoom.set(roomCode, t);
-            console.log(`Description phase complete for room ${roomCode}, discussion started (30s)`);
+            console.log(`Description phase complete for room ${roomCode}, discussion started (45s)`);
           }, 1000);
         }
       })();
@@ -491,7 +491,7 @@ io.on('connection', (socket) => {
         aiThinking: false,
       });
     } else {
-      // All 4 have submitted - wait 1s then start discussion phase (30s)
+      // All 4 have submitted - wait 1s then start discussion phase (45s)
       const room = roomCode;
       setTimeout(() => {
         gameManager.setPhase(room, GamePhase.DISCUSSION);
@@ -521,7 +521,7 @@ io.on('connection', (socket) => {
         }
         const timer = setTimeout(() => endDiscussionPhase(room), DISCUSSION_DURATION_MS);
         discussionTimersByRoom.set(room, timer);
-        console.log(`Description phase complete for room ${room}, discussion started (30s)`);
+        console.log(`Description phase complete for room ${room}, discussion started (45s)`);
       }, 1000);
     }
   });
