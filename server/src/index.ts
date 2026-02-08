@@ -11,10 +11,13 @@ import { generateAIDescription, generateAIVote, generateAIDiscussionMessage } fr
 const app = express();
 const httpServer = createServer(app);
 
-// Configure CORS for the frontend
+// Configure CORS for the frontend (CORS_ORIGIN for production; unset = localhost in dev)
+const corsOrigin = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim()).filter(Boolean)
+  : ['http://localhost:3000', 'http://localhost:5173'];
 const io = new Server(httpServer, {
   cors: {
-    origin: ['http://localhost:3000', 'http://localhost:5173'],
+    origin: corsOrigin,
     methods: ['GET', 'POST'],
   },
 });
@@ -138,8 +141,8 @@ function endDiscussionPhase(roomCode: string): void {
   console.log(`Discussion ended for room ${roomCode}, voting started`);
 }
 
-// Middleware
-app.use(cors());
+// Middleware (same CORS origins as Socket.io)
+app.use(cors({ origin: corsOrigin }));
 app.use(express.json());
 
 // Basic health check endpoint

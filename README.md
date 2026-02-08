@@ -82,6 +82,18 @@ Create or edit the `.env` file in the `server` folder:
 GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
+### Environment variables (deployment)
+
+For **local development**, you can leave these unset; defaults are used.
+
+- **Frontend** (root `.env` or `.env.local`):  
+  `VITE_SOCKET_URL` — Socket.io server URL. Unset = `http://localhost:3001`. For production, set to your public backend URL (e.g. `https://api.yourdomain.com`) when building the frontend.
+- **Backend** (`server/.env`):  
+  `CORS_ORIGIN` — Allowed frontend origin(s), comma-separated. Unset = `http://localhost:3000` and `http://localhost:5173`. For production, set to your public app URL (e.g. `https://yourdomain.com`).  
+  `PORT` — Server port (default `3001`).
+
+See root `.env.example` and `server/.env.example` for templates.
+
 ## 🚀 Running the App
 
 You need to run **both** the backend server and the frontend app.
@@ -102,6 +114,32 @@ npm run dev
 ```
 
 The app will open at `http://localhost:3000` (or similar port shown in terminal)
+
+## 🚀 Deployment (professional server)
+
+Assume one machine (your server) with a public URL — e.g. `https://yourdomain.com` or an IP like `https://123.45.67.89`. If you use a domain, point it to this server.
+
+### Backend
+
+1. Clone the repo and install: `cd server`, `npm install`.
+2. Create `server/.env` with:
+   - `GEMINI_API_KEY` — your Gemini API key
+   - `PORT` — e.g. `3001` (or the port your host uses)
+   - `CORS_ORIGIN` — the URL where the frontend will be served (e.g. `https://yourdomain.com` or `https://app.yourdomain.com`)
+3. Run with `npm run dev` or `npm start`. Optionally use a process manager (e.g. [PM2](https://pm2.keymetrics.io/)) to keep it running.
+4. Expose the backend: either open port 3001 on the firewall, or put the server behind a reverse proxy (e.g. Nginx) so the backend is reachable at e.g. `https://yourdomain.com` or `https://api.yourdomain.com`.
+
+### Frontend
+
+1. In the repo root, set `VITE_SOCKET_URL` to the **public backend URL** (same as where the backend is reachable, e.g. `https://api.yourdomain.com` or `https://yourdomain.com` if the backend is on the same host).
+2. Run `npm run build`.
+3. Serve the `dist/` folder from the same server (e.g. Nginx serving static files) or from a CDN, so the app is available at e.g. `https://yourdomain.com` or `https://app.yourdomain.com`.
+
+### Public app URL for the hackathon
+
+**The URL to share with players is the frontend URL** (e.g. `https://yourdomain.com` or `https://app.yourdomain.com`). Anyone who opens this URL in their browser can play; the app will connect to the backend using the URL configured at build time (`VITE_SOCKET_URL`).
+
+> **Quick share:** For the Gemini hackathon, share this link: **\[your frontend URL\]**. Anyone with the link can play in their browser.
 
 ## 🎲 How to Play
 
