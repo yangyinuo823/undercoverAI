@@ -49,6 +49,7 @@ interface FinalResults {
   aiGuessWinners: { id: string; name: string }[];
   aiPlayer: { id: string; name: string; role: string };
   allGuesses: { playerId: string; playerName: string; guessedId: string; correct: boolean }[];
+  civiliansWon?: boolean;
 }
 
 interface DescriptionTranscriptEntry {

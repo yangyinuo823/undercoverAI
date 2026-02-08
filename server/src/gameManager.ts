@@ -643,40 +643,22 @@ class GameManager {
     return true;
   }
 
-  // Check if all losing human players have submitted AI guesses
+  // Check if all human players have submitted AI guesses
   allAIGuessesSubmitted(roomCode: string): boolean {
     const game = this.games.get(roomCode);
     if (!game) return false;
 
-    // Only players who lost need to guess
-    const losingHumans = Array.from(game.players.values()).filter(p => {
-      if (!p.isHuman) return false;
-      // If civilians won, undercover humans lost (if any)
-      // If civilians lost, civilian humans lost
-      if (game.civiliansWon) {
-        return p.role === Role.UNDERCOVER;
-      } else {
-        return p.role === Role.CIVILIAN;
-      }
-    });
-
-    return losingHumans.every(p => game.aiGuesses.has(p.id));
+    const humanPlayers = Array.from(game.players.values()).filter(p => p.isHuman);
+    return humanPlayers.every(p => game.aiGuesses.has(p.id));
   }
 
-  // Get players who need to guess AI
+  // Get players who need to guess AI (all human players)
   getPlayersWhoNeedToGuessAI(roomCode: string): string[] {
     const game = this.games.get(roomCode);
     if (!game) return [];
 
     return Array.from(game.players.values())
-      .filter(p => {
-        if (!p.isHuman) return false;
-        if (game.civiliansWon) {
-          return p.role === Role.UNDERCOVER;
-        } else {
-          return p.role === Role.CIVILIAN;
-        }
-      })
+      .filter(p => p.isHuman)
       .map(p => p.id);
   }
 
@@ -722,21 +704,13 @@ class GameManager {
     };
   }
 
-  // Check if a player needs to guess AI
+  // Check if a player needs to guess AI (all human players need to guess)
   playerNeedsToGuessAI(roomCode: string, playerId: string): boolean {
     const game = this.games.get(roomCode);
     if (!game) return false;
 
     const player = game.players.get(playerId);
-    if (!player || !player.isHuman) return false;
-
-    // If civilians won, only undercover humans need to guess
-    // If civilians lost, only civilian humans need to guess
-    if (game.civiliansWon) {
-      return player.role === Role.UNDERCOVER;
-    } else {
-      return player.role === Role.CIVILIAN;
-    }
+    return !!player?.isHuman;
   }
 
   // Check if player has already guessed AI

@@ -32,7 +32,7 @@ const shuffleWithSeed = <T,>(array: T[], seed: string): T[] => {
 };
 
 const App: React.FC = () => {
-  const { socket, roomState, gameState, submitDescription, sendDiscussionMessage, advanceToVoting, submitVote, advanceToAIGuess, submitAIGuess, skipAIGuess } = useSocket();
+  const { socket, roomState, gameState, submitDescription, sendDiscussionMessage, advanceToVoting, submitVote, advanceToAIGuess, submitAIGuess } = useSocket();
   const [selectedVote, setSelectedVote] = useState<string | null>(null);
   const [selectedAIGuess, setSelectedAIGuess] = useState<string | null>(null);
   const [hasVoted, setHasVoted] = useState(false);
@@ -653,17 +653,33 @@ const App: React.FC = () => {
             )}
           </div>
 
-          {/* Transcript so far */}
-          {gameState.descriptionTranscript && gameState.descriptionTranscript.length > 0 && (
-            <div className="mb-4 p-3 bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
-              <h4 className="font-bold mb-2">Descriptions so far:</h4>
-              <ol className="list-decimal list-inside space-y-1 text-gray-800 dark:text-gray-200">
-                {gameState.descriptionTranscript.map((entry, i) => (
-                  <li key={i}><span className="font-medium">{entry.playerName}:</span> &quot;{entry.description}&quot;</li>
-                ))}
-              </ol>
-            </div>
-          )}
+          {/* Transcript so far — in original speaking order (descriptionTurnOrder) */}
+          {(() => {
+            const orderedDescriptions = (gameState.descriptionTurnOrder?.length
+              ? gameState.descriptionTurnOrder
+                  .map((pid) => {
+                    const fromTranscript = gameState.descriptionTranscript?.find((e) => e.playerId === pid);
+                    const fromPlayer = gameState.players.find((p) => p.id === pid);
+                    const description = fromTranscript?.description ?? fromPlayer?.description;
+                    const playerName = fromTranscript?.playerName ?? fromPlayer?.name ?? pid;
+                    return description ? { playerId: pid, playerName, description } : null;
+                  })
+                  .filter((x): x is { playerId: string; playerName: string; description: string } => x != null)
+              : gameState.descriptionTranscript?.length
+                ? gameState.descriptionTranscript
+                : []
+            );
+            return orderedDescriptions.length > 0 ? (
+              <div className="mb-4 p-3 bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+                <h4 className="font-bold mb-2">Descriptions so far:</h4>
+                <ol className="list-decimal list-inside space-y-1 text-gray-800 dark:text-gray-200">
+                  {orderedDescriptions.map((entry, i) => (
+                    <li key={entry.playerId}><span className="font-medium">{entry.playerName}:</span> &quot;{entry.description}&quot;</li>
+                  ))}
+                </ol>
+              </div>
+            ) : null;
+          })()}
 
           {allDescriptionsRevealed && (
             <div className="mb-4 p-3 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded-lg text-center">
@@ -700,9 +716,14 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {/* Player list (read-only during description); eliminated players greyed out */}
+          {/* Player list in speaking order (descriptionTurnOrder) so AI appears in correct position */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {shuffledPlayers.map((player) => (
+            {(gameState.descriptionTurnOrder?.length
+              ? gameState.descriptionTurnOrder
+                  .map((pid) => gameState.players.find((p) => p.id === pid))
+                  .filter((p): p is NonNullable<typeof p> => p != null)
+              : shuffledPlayers
+            ).map((player) => (
               <div key={player.id} className={`p-4 rounded-lg border-2 ${
                 player.isEliminated ? 'bg-gray-200 dark:bg-gray-600 border-gray-400 opacity-75' :
                 player.id === gameState.myPlayerId ? 'bg-blue-50 dark:bg-blue-900 border-blue-400' : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600'
@@ -724,9 +745,20 @@ const App: React.FC = () => {
     // DISCUSSION PHASE
     if (gameState.phase === 'discussion') {
       const timeUp = discussionSecondsLeft !== null && discussionSecondsLeft <= 0;
-      const descriptionsToShow = gameState.descriptionTranscript?.length
-        ? gameState.descriptionTranscript
-        : gameState.players.filter(p => p.description).map(p => ({ playerName: p.name, description: p.description! }));
+      // Show descriptions in original speaking order (descriptionTurnOrder), not submission/array order
+      const descriptionsToShow = gameState.descriptionTurnOrder?.length
+        ? gameState.descriptionTurnOrder
+            .map((pid) => {
+              const fromTranscript = gameState.descriptionTranscript?.find((e) => e.playerId === pid);
+              const fromPlayer = gameState.players.find((p) => p.id === pid);
+              const description = fromTranscript?.description ?? fromPlayer?.description;
+              const playerName = fromTranscript?.playerName ?? fromPlayer?.name ?? pid;
+              return description ? { playerName, description } : null;
+            })
+            .filter((x): x is { playerName: string; description: string } => x != null)
+        : gameState.descriptionTranscript?.length
+          ? gameState.descriptionTranscript.map((e) => ({ playerName: e.playerName, description: e.description }))
+          : gameState.players.filter(p => p.description).map(p => ({ playerName: p.name, description: p.description! }));
 
       return (
         <>
@@ -904,7 +936,6 @@ const App: React.FC = () => {
     if (gameState.phase === 'results' && gameState.votingResults) {
       const results = gameState.votingResults;
       const iWon = (results.civiliansWon && myPlayer?.role === 'Civilian') || (!results.civiliansWon && myPlayer?.role === 'Undercover');
-      const iNeedToGuessAI = gameState.playersWhoNeedToGuessAI.includes(gameState.myPlayerId || '');
       
       return (
         <>
@@ -959,17 +990,10 @@ const App: React.FC = () => {
             ))}
           </div>
 
-          {!iWon && (
-            <div className="text-center p-4 bg-orange-100 dark:bg-orange-900 rounded-lg">
-              <p className="text-lg mb-2">🎯 Second Chance! Guess who is the AI player to redeem yourself!</p>
-              <Button onClick={advanceToAIGuess}>Guess the AI</Button>
-            </div>
-          )}
-          {iWon && (
-            <div className="text-center">
-              <Button onClick={skipAIGuess}>See Final Results</Button>
-            </div>
-          )}
+          <div className="text-center p-4 bg-purple-100 dark:bg-purple-900 rounded-lg">
+            <p className="text-lg mb-2">🤖 Everyone gets to guess who the AI is!</p>
+            <Button onClick={advanceToAIGuess}>Guess the AI</Button>
+          </div>
         </>
       );
     }
@@ -1010,8 +1034,7 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {hasGuessedAI && <div className="text-center text-green-600 font-bold">Guess submitted! Waiting for results...</div>}
-          {!iNeedToGuess && <div className="text-center text-gray-500">You don't need to guess (you won!)</div>}
+          {hasGuessedAI && <div className="text-center text-green-600 font-bold">Guess submitted! Waiting for others...</div>}
         </>
       );
     }
@@ -1020,7 +1043,19 @@ const App: React.FC = () => {
     if (gameState.phase === 'final_results' && gameState.finalResults) {
       const finalResults = gameState.finalResults;
       const iGuessedCorrectly = finalResults.aiGuessWinners.some(w => w.id === gameState.myPlayerId);
-      
+      const civiliansWon = finalResults.civiliansWon ?? gameState.votingResults?.civiliansWon ?? false;
+      const wonRound = (civiliansWon && myPlayer?.role === 'Civilian') || (!civiliansWon && myPlayer?.role === 'Undercover');
+      const isHuman = gameState.playersWhoNeedToGuessAI.includes(gameState.myPlayerId || '');
+
+      const scenarioMessages: Record<string, string> = {
+        'won-guessed': 'You won the Undercover game — and you found the correct AI player! Double win! Congrats!',
+        'lost-guessed': "You lost the Undercover game — but you found the correct AI player! You're a great AI spotter!",
+        'won-notguessed': "You won the Undercover game — but you didn't detect the AI player. That AI was too cunning!",
+        'lost-notguessed': "You lost the Undercover game — and you didn't detect the AI player. Double oof! Good luck next game!",
+      };
+      const scenarioKey = wonRound ? (iGuessedCorrectly ? 'won-guessed' : 'won-notguessed') : (iGuessedCorrectly ? 'lost-guessed' : 'lost-notguessed');
+      const scenarioMessage = scenarioMessages[scenarioKey];
+
       return (
         <>
           <div className="mb-6 text-center">
@@ -1032,9 +1067,15 @@ const App: React.FC = () => {
             <p>Role: {finalResults.aiPlayer.role}</p>
           </div>
 
+          {isHuman && scenarioMessage && (
+            <div className="mb-6 p-4 bg-slate-100 dark:bg-slate-700 rounded-lg text-center">
+              <p className="text-xl font-medium">{scenarioMessage}</p>
+            </div>
+          )}
+
           {finalResults.aiGuessWinners.length > 0 && (
             <div className="mb-6 p-4 bg-green-100 dark:bg-green-900 rounded-lg">
-              <h4 className="font-bold mb-2">🎉 Correct AI Guesses (Individual Winners!):</h4>
+              <h4 className="font-bold mb-2">🎉 Correct AI Guesses (AI Spotters!):</h4>
               {finalResults.aiGuessWinners.map(w => (
                 <div key={w.id} className={w.id === gameState.myPlayerId ? 'font-bold text-green-700' : ''}>
                   {w.name} {w.id === gameState.myPlayerId && '(You!)'}
@@ -1052,18 +1093,6 @@ const App: React.FC = () => {
                   <span>{g.correct ? '✅ Correct!' : '❌ Wrong'}</span>
                 </div>
               ))}
-            </div>
-          )}
-
-          {iGuessedCorrectly && (
-            <div className="text-center p-4 bg-yellow-100 dark:bg-yellow-900 rounded-lg mb-6">
-              <p className="text-xl">🎊 You correctly identified the AI and redeemed yourself!</p>
-            </div>
-          )}
-
-          {!iGuessedCorrectly && gameState.playersWhoNeedToGuessAI.includes(gameState.myPlayerId || '') && (
-            <div className="text-center p-4 bg-amber-100 dark:bg-amber-900 rounded-lg mb-6">
-              <p className="text-xl text-amber-800 dark:text-amber-200">😔 Unfortunately, you didn&apos;t find who the AI was.</p>
             </div>
           )}
 

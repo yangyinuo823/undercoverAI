@@ -27,9 +27,10 @@ const discussionTimersByRoom = new Map<string, NodeJS.Timeout>();
 const aiDiscussionTimeoutsByRoom = new Map<string, NodeJS.Timeout[]>();
 const lastAiDiscussionAttemptByRoom = new Map<string, number>();
 const MIN_MS_BETWEEN_AI_DISCUSSION_ATTEMPTS = 6000;
-const AI_TYPING_DELAY_MS_PER_CHAR = 50;
-const AI_TYPING_DELAY_MIN_MS = 2000;
-const AI_TYPING_DELAY_MAX_MS = 10000;
+// Delay before sending AI text (no typing animation): wait then send full message. 80–180 ms per character.
+const AI_DELAY_MS_PER_CHAR_MIN = 80;
+const AI_DELAY_MS_PER_CHAR_MAX = 180;
+const AI_THINKING_BEFORE_MESSAGE_MS = 600;
 const AI_RESPONSE_TO_HUMAN_DELAY_MIN_MS = 5000;
 const AI_RESPONSE_TO_HUMAN_DELAY_MAX_MS = 10000;
 
@@ -62,6 +63,7 @@ async function tryAIDiscussionMessage(roomCode: string): Promise<void> {
     .filter(p => p.id !== AI_PLAYER_ID)
     .map(p => p.name);
   const isUndercover = aiPlayer.role === Role.UNDERCOVER;
+  const myDescriptionThisRound = game.players.get(AI_PLAYER_ID)?.description ?? '';
 
   try {
     const response = await generateAIDiscussionMessage(
@@ -71,17 +73,19 @@ async function tryAIDiscussionMessage(roomCode: string): Promise<void> {
       aiPersona,
       isUndercover,
       allDescriptions.map(d => ({ playerName: d.playerName, description: d.description })),
-      discussionTranscript
+      discussionTranscript,
+      myDescriptionThisRound
     );
     const content = (response.content || '').trim();
     if (!content) return;
 
-    const typingDelayMs = Math.min(AI_TYPING_DELAY_MAX_MS, Math.max(AI_TYPING_DELAY_MIN_MS, AI_TYPING_DELAY_MIN_MS + AI_TYPING_DELAY_MS_PER_CHAR * content.length));
-    await new Promise<void>(r => setTimeout(r, typingDelayMs));
+    await new Promise<void>(r => setTimeout(r, AI_THINKING_BEFORE_MESSAGE_MS));
+    const delayMs = Math.round(content.length * (AI_DELAY_MS_PER_CHAR_MIN + Math.random() * (AI_DELAY_MS_PER_CHAR_MAX - AI_DELAY_MS_PER_CHAR_MIN)));
+    await new Promise<void>(r => setTimeout(r, delayMs));
 
     const g = gameManager.getGame(roomCode);
     if (!g || g.phase !== GamePhase.DISCUSSION) return;
-    const messages = discussionMessagesByRoom.get(roomCode) || [];
+    const messages = discussionMessagesByRoom.get(roomCode) ?? [];
     const entry = { playerId: AI_PLAYER_ID, playerName: aiPlayer.name, message: content.slice(0, MAX_DISCUSSION_MESSAGE_LENGTH), timestamp: Date.now() };
     messages.push(entry);
     discussionMessagesByRoom.set(roomCode, messages);
@@ -328,6 +332,8 @@ io.on('connection', (socket) => {
               turnIndex, previousDescriptions
             );
             gameManager.submitDescription(roomCode, AI_PLAYER_ID, aiResponse.content);
+            const delayMsDesc = Math.round(aiResponse.content.length * (AI_DELAY_MS_PER_CHAR_MIN + Math.random() * (AI_DELAY_MS_PER_CHAR_MAX - AI_DELAY_MS_PER_CHAR_MIN)));
+            await new Promise<void>(r => setTimeout(r, delayMsDesc));
             io.to(roomCode).emit('player-submitted-description', {
               playerId: AI_PLAYER_ID,
               playerName: aiPlayer.name,
@@ -456,6 +462,8 @@ io.on('connection', (socket) => {
         );
 
         gameManager.submitDescription(roomCode, AI_PLAYER_ID, aiResponse.content);
+        const delayMsDesc = Math.round(aiResponse.content.length * (AI_DELAY_MS_PER_CHAR_MIN + Math.random() * (AI_DELAY_MS_PER_CHAR_MAX - AI_DELAY_MS_PER_CHAR_MIN)));
+        await new Promise<void>(r => setTimeout(r, delayMsDesc));
         io.to(roomCode).emit('player-submitted-description', {
           playerId: AI_PLAYER_ID,
           playerName: aiPlayer.name,
@@ -689,6 +697,8 @@ io.on('connection', (socket) => {
                         turnIndex, previousDescriptions
                       );
                       gameManager.submitDescription(roomCode, AI_PLAYER_ID, aiResponse.content);
+                      const delayMsDesc = Math.round(aiResponse.content.length * (AI_DELAY_MS_PER_CHAR_MIN + Math.random() * (AI_DELAY_MS_PER_CHAR_MAX - AI_DELAY_MS_PER_CHAR_MIN)));
+                      await new Promise<void>(r => setTimeout(r, delayMsDesc));
                       io.to(roomCode).emit('player-submitted-description', {
                         playerId: AI_PLAYER_ID,
                         playerName: aiPlayer.name,
@@ -754,14 +764,18 @@ io.on('connection', (socket) => {
               return;
             }
             
-            // AI generates vote based on descriptions
+            // AI generates vote based on descriptions and discussion (stay consistent with what it said)
             const isUndercover = aiPlayer.role === Role.UNDERCOVER;
+            const discussionTranscript = discussionMessagesByRoom.get(roomCode) || [];
+            const myDescriptionThisRound = aiPlayer.description ?? '';
             const aiVoteResponse = await generateAIVote(
               aiPlayer.word,
               allDescriptions.map(d => ({ playerName: d.playerName, description: d.description })),
               aiPlayer.name,
               aiPersona,
-              isUndercover
+              isUndercover,
+              discussionTranscript.map(m => ({ playerName: m.playerName, message: m.message })),
+              myDescriptionThisRound
             );
             
             // Find the player ID from the player name AI voted for
@@ -848,6 +862,8 @@ io.on('connection', (socket) => {
                           turnIndex, previousDescriptions
                         );
                         gameManager.submitDescription(roomCode, AI_PLAYER_ID, aiResponse.content);
+                        const delayMsDesc = Math.round(aiResponse.content.length * (AI_DELAY_MS_PER_CHAR_MIN + Math.random() * (AI_DELAY_MS_PER_CHAR_MAX - AI_DELAY_MS_PER_CHAR_MIN)));
+                        await new Promise<void>(r => setTimeout(r, delayMsDesc));
                         io.to(roomCode).emit('player-submitted-description', {
                           playerId: AI_PLAYER_ID,
                           playerName: aiPlayer.name,
@@ -917,7 +933,7 @@ io.on('connection', (socket) => {
     
     io.to(roomCode).emit('game-phase-changed', {
       phase: GamePhase.AI_GUESS,
-      message: 'Losing players get a second chance! Guess who is the AI to redeem yourself.',
+      message: 'Everyone gets to guess who the AI is!',
       playersWhoNeedToGuess,
     });
   });
@@ -949,10 +965,10 @@ io.on('connection', (socket) => {
         
         if (finalResults) {
           gameManager.setPhase(roomCode, GamePhase.FINAL_RESULTS);
-          
           io.to(roomCode).emit('final-results', {
             ...finalResults,
             phase: GamePhase.FINAL_RESULTS,
+            civiliansWon: game.civiliansWon ?? false,
           });
 
           console.log(`Final results sent for room ${roomCode}`);
@@ -961,7 +977,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Skip AI guess phase (go directly to final results)
+  // Skip AI guess phase (go directly to final results) – e.g. for edge cases / host
   socket.on('skip-ai-guess', (roomCode: string) => {
     console.log(`Skipping AI guess for room ${roomCode}`);
     
@@ -980,6 +996,7 @@ io.on('connection', (socket) => {
       aiPlayer: aiPlayer ? { id: aiPlayer.id, name: aiPlayer.name, role: aiPlayer.role } : null,
       allGuesses: [],
       phase: GamePhase.FINAL_RESULTS,
+      civiliansWon: game.civiliansWon ?? false,
     });
   });
 

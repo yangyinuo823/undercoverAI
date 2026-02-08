@@ -98,6 +98,7 @@ const buildPersonaPrompt = (aiName: string, otherPlayers: string[], persona: AIP
 
 Your word: "${aiWord}"
 ${roleContext}
+Your description must fit your role and the word you have. Stay consistent with this for the whole round.
 
 Your personality: ${personality.description}
 Example phrases you might naturally use: ${personality.examples.join(', ')}${quirkInstructions}
@@ -135,13 +136,22 @@ export const generateAIDescription = async (
     ? previousDescriptions.map(d => `${d.playerName}: "${d.description}"`).join('\n')
     : '';
 
+  // Style hints from group (blend in: match tone/length, not wording)
+  const styleBlock = hasPrevious
+    ? `STYLE OF THIS GROUP (match tone and length, not wording):
+${previousDescriptions.slice(0, 2).map(d => `- ${d.playerName}: "${d.description}"`).join('\n')}
+Write in a similar tone and length to the group (casual, short, or a bit longer). Do not copy their words or structure.
+
+`
+    : '';
+
   let taskSection: string;
   if (position === 'first') {
-    taskSection = `TASK: Describe your word "${aiWord}" in ONE sentence without saying the word itself.
+    taskSection = `${styleBlock}TASK: Describe your word "${aiWord}" in ONE sentence without saying the word itself.
 You are going FIRST - you have not seen anyone else's description yet.
 Think about: What would a real person say off the top of their head? Don't overthink it.`;
   } else if (position === 'last') {
-    taskSection = `TASK: Describe your word "${aiWord}" in ONE sentence without saying the word itself.
+    taskSection = `${styleBlock}TASK: Describe your word "${aiWord}" in ONE sentence without saying the word itself.
 
 DESCRIPTIONS SO FAR (you are going LAST - everyone else has already spoken):
 ${previousText}
@@ -151,7 +161,7 @@ STRICT RULES (you are last - do NOT sound like you copied):
 - Sound like a different person. Vary your sentence structure and word choice.
 - Do NOT paraphrase or echo what others said. Give a description that fits your word but feels DISTINCT from what's already been said.`;
   } else {
-    taskSection = `TASK: Describe your word "${aiWord}" in ONE sentence without saying the word itself.
+    taskSection = `${styleBlock}TASK: Describe your word "${aiWord}" in ONE sentence without saying the word itself.
 
 DESCRIPTIONS SO FAR (you are in the middle - these players have already spoken):
 ${previousText}
@@ -215,13 +225,15 @@ Return JSON:
   }
 };
 
-// Generate AI vote based on all descriptions
+// Generate AI vote based on all descriptions and discussion (stay consistent with what you said)
 export const generateAIVote = async (
   aiWord: string,
   allDescriptions: { playerName: string; description: string }[],
   aiName: string,
   persona: AIPersona,
-  isUndercover: boolean
+  isUndercover: boolean,
+  discussionTranscript: { playerName: string; message: string }[],
+  myDescriptionThisRound: string
 ): Promise<AIVoteOutput> => {
   const ai = getGeminiClient();
 
@@ -233,20 +245,39 @@ export const generateAIVote = async (
     .map(d => `${d.playerName}: "${d.description}"`)
     .join('\n');
 
+  const discussionText = discussionTranscript.length > 0
+    ? discussionTranscript.map(d => `${d.playerName}: ${d.message}`).join('\n')
+    : '(No discussion yet.)';
+  const myDiscussionMessages = discussionTranscript
+    .filter(m => m.playerName === aiName)
+    .map(m => m.message);
+  const whatISaidInDiscussion = myDiscussionMessages.length > 0
+    ? myDiscussionMessages.join(' | ')
+    : '(nothing)';
+
   const prompt = `${buildPersonaPrompt(aiName, otherPlayerNames, persona, aiWord, isUndercover)}
 
 ALL DESCRIPTIONS:
 ${descriptionsText}
 
+DISCUSSION (before voting):
+${discussionText}
+
+What YOU said this round (description): "${myDescriptionThisRound}"
+What YOU said in discussion: ${whatISaidInDiscussion}
+
 TASK: Vote for who you think has a DIFFERENT word than the majority.
+
+CONSISTENCY (critical):
+- If you already said in discussion that a specific person is suspicious or has the different word, you MUST vote for that person unless something in the discussion clearly changed your mind. Your vote must be consistent with what you said.
+- Your vote and reason must be consistent with your role and with your description and discussion. Do not contradict yourself.
 
 Decision-making:
 - Look for descriptions that don't quite match
 - Consider: whose description seems "off" compared to the group?
-- ${isUndercover ? 'You might be the odd one out - try to deflect suspicion subtly.' : 'You have the same word as most - find the outlier.'}
+- ${isUndercover ? 'You are undercover: vote in a way that helps you survive (e.g. vote with the crowd or for someone others might vote for). Stay consistent with what you said in discussion.' : 'You have the same word as most - find the outlier.'}
 - ${persona.strategy.name === 'deflect' ? 'Use your deflect strategy - point suspicion elsewhere.' : `Apply your ${persona.strategy.name} approach.`}
-- Don't always pick the most obvious choice - humans sometimes make surprising votes
-- Your justification should be brief and natural (3-10 words typically)
+- Your justification should be brief and natural (3-10 words typically). Match the casual tone of the group (short, natural).
 - Match your personality style in your reason
 
 RULES:
@@ -327,7 +358,8 @@ export const generateAIDiscussionMessage = async (
   persona: AIPersona,
   isUndercover: boolean,
   allDescriptions: { playerName: string; description: string }[],
-  discussionTranscript: { playerName: string; message: string }[]
+  discussionTranscript: { playerName: string; message: string }[],
+  myDescriptionThisRound: string
 ): Promise<AIDiscussionOutput> => {
   const ai = getGeminiClient();
 
@@ -344,8 +376,8 @@ export const generateAIDiscussionMessage = async (
     : '(No messages yet.)';
 
   const roleInstruction = isUndercover
-    ? `You have a DIFFERENT word (Undercover). Goal: blend in and mislead — create doubt, deflect suspicion, point at others, or add harmless noise. Do NOT reveal your word.`
-    : `You have the SAME word as most (Civilian). Goal: share who you think has the different word and why, briefly.`;
+    ? `You have a DIFFERENT word (Undercover). Goal: blend in and mislead — create doubt, deflect suspicion, point at others, or add harmless noise. Do NOT reveal your word. Try to infer the majority's word from their descriptions (do not say it aloud). In discussion: create doubt, deflect (e.g. suggest someone else is suspicious), or add harmless short comments. Your goal is to survive the vote and sound like the majority next round.`
+    : `You have the SAME word as most (Civilian). Goal: share who you think has the different word and why, briefly. If you think someone's word doesn't fit the group, say who and why in one short line (e.g. "[Name]'s description felt off"). You will vote later; if you name someone here, plan to vote for them unless the discussion changes your mind.`;
 
   const taskRules = isUndercover
     ? 'Mislead: suggest someone else is suspicious, or say something vague that doesn\'t give away your word. No long speeches.'
@@ -356,11 +388,16 @@ export const generateAIDiscussionMessage = async (
 Your word: "${aiWord}"
 Your role: ${roleInstruction}
 
+What YOU said this round (stay consistent): "${myDescriptionThisRound}"
+Do not contradict what you said in your description.
+
 DESCRIPTIONS (what everyone said in order):
 ${descriptionsText}
 
 DISCUSSION SO FAR (free chat before voting):
 ${discussionText}
+
+Write one short message that could sit in this chat. Match the tone and length of the messages above (casual, short, similar style).
 
 Your personality: ${personality.description}
 Examples: ${personality.examples.join(', ')}${quirkInstructions}
