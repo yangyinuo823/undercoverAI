@@ -168,6 +168,39 @@ gameManager.deleteGame(ROOM21_C1);
 
 console.log('Prompt 2.1 tests passed.');
 
+// --- Prompt 2.2: Voting tie -> no elimination, new cycle ---
+const ROOM22_TIE = 'PROMPT22_TIE';
+gameManager.startGame(ROOM22_TIE, [
+  { id: 'p1', name: 'Alice' },
+  { id: 'p2', name: 'Bob' },
+  { id: 'p3', name: 'Carol' },
+]);
+const gTie = gameManager.getGame(ROOM22_TIE)!;
+const [pid1, pid2, pid3, pid4] = gTie.alivePlayerIds;
+gameManager.setPhase(ROOM22_TIE, GamePhase.VOTING);
+// Tie: 2 votes for p1, 2 votes for p2 (e.g. p1->p2, p2->p1, p3->p1, p4->p2 -> p1:2, p2:2)
+gameManager.submitVote(ROOM22_TIE, pid1, pid2);
+gameManager.submitVote(ROOM22_TIE, pid2, pid1);
+gameManager.submitVote(ROOM22_TIE, pid3, pid1);
+gameManager.submitVote(ROOM22_TIE, pid4, pid2);
+const resTie = gameManager.calculateVotingResults(ROOM22_TIE)!;
+assert(resTie.eliminatedPlayer === null, 'tie -> no one eliminated');
+assert(resTie.outcome === 'new_cycle', 'tie -> outcome new_cycle');
+assert(resTie.civiliansWon === false, 'tie -> civilians did not win');
+const gTieAfter = gameManager.getGame(ROOM22_TIE)!;
+assert(gTieAfter.alivePlayerIds.length === 4, 'tie -> alivePlayerIds unchanged (4)');
+assert(gTieAfter.phase === GamePhase.DESCRIPTION, 'tie -> phase DESCRIPTION');
+assert(gTieAfter.cycleNumber === 2, 'tie -> cycleNumber incremented to 2');
+for (const pid of gTieAfter.alivePlayerIds) {
+  const p = gTieAfter.players.get(pid)!;
+  assert(p.description === '', `tie new cycle: ${pid} description cleared`);
+  assert(p.voteTarget === '', `tie new cycle: ${pid} voteTarget cleared`);
+  assert(p.hasSubmittedDescription === false, `tie new cycle: ${pid} hasSubmittedDescription false`);
+  assert(p.hasVoted === false, `tie new cycle: ${pid} hasVoted false`);
+}
+gameManager.deleteGame(ROOM22_TIE);
+console.log('Prompt 2.2 tests passed.');
+
 // --- Prompt 3.1: Reject actions from eliminated players ---
 const ROOM31 = 'PROMPT31_TEST';
 gameManager.startGame(ROOM31, [

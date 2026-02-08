@@ -31,8 +31,8 @@ const getGeminiClient = () => {
   return new GoogleGenAI({ apiKey });
 };
 
-// Fallback descriptions pool (more variety)
-const FALLBACK_DESCRIPTIONS = {
+// Fallback descriptions pool when API fails (keyed for Coffee/Tea; generic for any other word)
+const FALLBACK_DESCRIPTIONS: Record<string, string[]> = {
   Coffee: [
     "morning fuel lol",
     "that brown drink everyone's addicted to",
@@ -54,6 +54,17 @@ const FALLBACK_DESCRIPTIONS = {
     "steeping leaves in water basically",
   ],
 };
+
+const GENERIC_FALLBACK_DESCRIPTIONS = [
+  "something you'd recognize if you saw it",
+  "pretty common thing tbh",
+  "idk how to describe it without giving it away",
+  "you know what i mean",
+  "kinda obvious once you think about it",
+  "everyone knows this one",
+  "common everyday thing",
+  "think of the first thing that comes to mind",
+];
 
 // Fallback vote justifications (more variety)
 const FALLBACK_VOTE_REASONS = [
@@ -194,7 +205,7 @@ Return JSON:
   } catch (error) {
     console.error("Error calling Gemini API for description:", error);
     // Fallback - pick random description from pool
-    const pool = FALLBACK_DESCRIPTIONS[aiWord as keyof typeof FALLBACK_DESCRIPTIONS] || FALLBACK_DESCRIPTIONS.Coffee;
+    const pool = FALLBACK_DESCRIPTIONS[aiWord] || GENERIC_FALLBACK_DESCRIPTIONS;
     const randomDesc = pool[Math.floor(Math.random() * pool.length)];
     return {
       player_name: aiName,

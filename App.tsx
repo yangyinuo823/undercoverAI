@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Player, Role, GamePhase, ChatMessage } from './types';
-import { CIVILIAN_WORD, UNDERCOVER_WORD, PLAYER_NAMES, PLAYER_4_NAME } from './constants';
+import { getRandomWordPair, PLAYER_NAMES, PLAYER_4_NAME } from './constants';
 import { generatePlayer4Description, generatePlayer4Vote } from './services/geminiService';
 import PlayerCard from './components/PlayerCard';
 import Button from './components/Button';
@@ -82,6 +82,9 @@ const App: React.FC = () => {
   const [aiGuesses, setAiGuesses] = useState<Record<string, string>>({});
   const [civiliansWon, setCiviliansWon] = useState<boolean>(false);
   const [submittedDescriptions, setSubmittedDescriptions] = useState<Set<string>>(new Set());
+  const [currentGameWords, setCurrentGameWords] = useState<{ civilianWord: string; undercoverWord: string } | null>(null);
+  const [tieRound, setTieRound] = useState(false);
+  const [lastVoteCounts, setLastVoteCounts] = useState<{ playerId: string; playerName: string; votes: number }[] | null>(null);
 
   const humanPlayers = useMemo(() => players.filter(p => p.isHuman), [players]);
   const player4 = useMemo(() => players.find(p => p.id === PLAYER_4_NAME), [players]);
@@ -101,9 +104,14 @@ const App: React.FC = () => {
     setAiGuesses({});
     setCiviliansWon(false);
     setSubmittedDescriptions(new Set());
+    setCurrentGameWords(null);
+    setTieRound(false);
+    setLastVoteCounts(null);
   }, []);
 
   const startGame = useCallback(() => {
+    const [civilianWord, undercoverWord] = getRandomWordPair();
+    setCurrentGameWords({ civilianWord, undercoverWord });
     const roles: Role[] = [Role.CIVILIAN, Role.CIVILIAN, Role.CIVILIAN, Role.UNDERCOVER];
     // Shuffle roles
     for (let i = roles.length - 1; i > 0; i--) {
@@ -113,7 +121,7 @@ const App: React.FC = () => {
 
     const initialPlayers: Player[] = PLAYER_NAMES.map((name, index) => {
       const role = roles[index];
-      const word = role === Role.CIVILIAN ? CIVILIAN_WORD : UNDERCOVER_WORD;
+      const word = role === Role.CIVILIAN ? civilianWord : undercoverWord;
       return {
         id: name,
         name: name,
@@ -132,7 +140,7 @@ const App: React.FC = () => {
     addChatMessage({
       player: 'System',
       type: 'system',
-      content: `Game started! ${CIVILIAN_WORD} (Civilians) vs ${UNDERCOVER_WORD} (Undercover). Player_4 is ${initialPlayers.find(p => p.id === PLAYER_4_NAME)?.role}.`,
+      content: `Game started! ${civilianWord} (Civilians) vs ${undercoverWord} (Undercover). Player_4 is ${initialPlayers.find(p => p.id === PLAYER_4_NAME)?.role}.`,
     });
     addChatMessage({ player: 'System', type: 'system', content: 'Description Phase: Enter a 1-sentence description of your word.' });
   }, [addChatMessage]);
@@ -178,7 +186,7 @@ const App: React.FC = () => {
         .filter(p => p.isHuman)
         .map(p => p.description || '');
 
-      generatePlayer4Description(player4Role, player4Word, otherDescriptions)
+      generatePlayer4Description(player4Role, player4Word, otherDescriptions, currentGameWords ?? undefined)
         .then(response => {
           setPlayers(prevPlayers =>
             prevPlayers.map(p =>
@@ -221,7 +229,7 @@ const App: React.FC = () => {
         description: p.description || '',
       }));
 
-      generatePlayer4Vote(player4Role, player4Word, allDescriptions)
+      generatePlayer4Vote(player4Role, player4Word, allDescriptions, currentGameWords ?? undefined)
         .then(response => {
           setPlayers(prevPlayers =>
             prevPlayers.map(p =>
@@ -266,55 +274,72 @@ const App: React.FC = () => {
         return;
       }
       
-      // Count votes to determine who was eliminated
+      // Count votes and detect tie (multiple players with same max votes)
       const voteCounts: Record<string, number> = {};
       players.forEach(p => {
         if (p.voteTarget) {
           voteCounts[p.voteTarget] = (voteCounts[p.voteTarget] || 0) + 1;
         }
       });
-      const mostVoted = Object.entries(voteCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
-      
-      // Find the actual undercover player
-      const undercoverPlayer = players.find(p => p.role === Role.UNDERCOVER);
-      const didCiviliansWin = mostVoted === undercoverPlayer?.id;
-      setCiviliansWon(didCiviliansWin);
-      
-      // Assign roles to human players for results display (they were assigned at start but hidden)
-      const finalPlayers = players.map(p => {
-        if (p.isHuman) {
-          // Human players are civilians (since Player_4 could be the undercover)
-          return { ...p, role: Role.CIVILIAN, word: CIVILIAN_WORD };
-        }
-        return p;
-      });
-      setPlayers(finalPlayers);
-      
-      if (didCiviliansWin) {
+      const maxVotes = Math.max(0, ...Object.values(voteCounts));
+      const playersWithMaxVotes = maxVotes > 0
+        ? Object.entries(voteCounts).filter(([, v]) => v === maxVotes).map(([id]) => id)
+        : [];
+      const isTie = playersWithMaxVotes.length !== 1;
+
+      if (isTie) {
+        setCiviliansWon(false);
+        setTieRound(true);
+        setLastVoteCounts(
+          Object.entries(voteCounts)
+            .map(([playerId, votes]) => ({
+              playerId,
+              playerName: players.find(p => p.id === playerId)?.name ?? playerId,
+              votes,
+            }))
+            .sort((a, b) => b.votes - a.votes)
+        );
         setGamePhase(GamePhase.RESULTS);
-        addChatMessage({ player: 'System', type: 'system', content: 'Results Phase! Civilians found the Undercover!' });
+        addChatMessage({ player: 'System', type: 'system', content: 'No one was eliminated (tie). New round!' });
       } else {
-        setGamePhase(GamePhase.AI_GUESS);
-        addChatMessage({ 
-          player: 'System', 
-          type: 'system', 
-          content: 'Civilians failed! But wait... can you guess who is the AI player? Guess correctly to redeem yourself!' 
+        const mostVoted = playersWithMaxVotes[0];
+        const undercoverPlayer = players.find(p => p.role === Role.UNDERCOVER);
+        const didCiviliansWin = mostVoted === undercoverPlayer?.id;
+        setCiviliansWon(didCiviliansWin);
+        const civilianWord = currentGameWords?.civilianWord ?? '';
+        const finalPlayers = players.map(p => {
+          if (p.isHuman) {
+            return { ...p, role: Role.CIVILIAN, word: p.word ?? civilianWord };
+          }
+          return p;
         });
+        setPlayers(finalPlayers);
+        if (didCiviliansWin) {
+          setGamePhase(GamePhase.RESULTS);
+          addChatMessage({ player: 'System', type: 'system', content: 'Results Phase! Civilians found the Undercover!' });
+        } else {
+          setGamePhase(GamePhase.AI_GUESS);
+          addChatMessage({ 
+            player: 'System', 
+            type: 'system', 
+            content: 'Civilians failed! But wait... can you guess who is the AI player? Guess correctly to redeem yourself!' 
+          });
+        }
       }
     } else if (gamePhase === GamePhase.AI_GUESS) {
       setGamePhase(GamePhase.FINAL_RESULTS);
       addChatMessage({ player: 'System', type: 'system', content: 'Final Results!' });
     }
     setError(null);
-  }, [gamePhase, players, addChatMessage]);
+  }, [gamePhase, players, addChatMessage, currentGameWords]);
 
   const renderGameContent = () => {
     switch (gamePhase) {
       case GamePhase.SETUP:
         return (
           <div className="text-center">
-            <h2 className="text-2xl font-bold mb-4">Undercover: Coffee vs Tea</h2>
-            <p className="mb-6">3 Civilians have "Coffee", 1 Undercover has "Tea". Find the Undercover!</p>
+            <h2 className="text-2xl font-bold mb-4">Undercover</h2>
+            <p className="mb-6">Each game uses a random pair of related words. 3 Civilians share one word, 1 Undercover has a different word. Find the Undercover!</p>
             <Button onClick={startGame} disabled={isPlayer4Thinking}>
               Start Game
             </Button>
@@ -388,6 +413,40 @@ const App: React.FC = () => {
           </>
         );
       case GamePhase.RESULTS:
+        if (tieRound) {
+          return (
+            <>
+              <h2 className="text-2xl font-bold mb-4 text-center text-amber-700 dark:text-amber-400">
+                It&apos;s a tie!
+              </h2>
+              <p className="text-xl text-center mb-6">
+                No one was eliminated. New round — describe your word again.
+              </p>
+              {lastVoteCounts && lastVoteCounts.length > 0 && (
+                <div className="mb-6 p-4 bg-gray-100 dark:bg-gray-700 rounded-lg max-w-md mx-auto">
+                  <p className="font-semibold mb-2">Vote counts:</p>
+                  <ul className="list-disc list-inside">
+                    {lastVoteCounts.map(({ playerName, votes }) => (
+                      <li key={playerName}>{playerName}: {votes} vote{votes !== 1 ? 's' : ''}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <div className="flex justify-center mt-auto pb-4">
+                <Button onClick={() => {
+                  setPlayers(prev => prev.map(p => ({ ...p, description: '', voteTarget: '' })));
+                  setSubmittedDescriptions(new Set());
+                  setTieRound(false);
+                  setLastVoteCounts(null);
+                  setGamePhase(GamePhase.DESCRIPTION);
+                  addChatMessage({ player: 'System', type: 'system', content: 'Description Phase: Enter a 1-sentence description of your word.' });
+                }}>
+                  Next round
+                </Button>
+              </div>
+            </>
+          );
+        }
         return (
           <>
             <h2 className="text-3xl font-bold mb-6 text-center text-emerald-700 dark:text-emerald-400">
@@ -563,9 +622,13 @@ const App: React.FC = () => {
 
       return (
         <>
-          {isNewCycle && gameState.votingResults?.eliminatedPlayer && (
+          {isNewCycle && (
             <div className="mb-4 p-3 bg-amber-100 dark:bg-amber-900 text-amber-900 dark:text-amber-100 rounded-lg text-center">
-              <strong>{gameState.votingResults.eliminatedPlayer.name}</strong> was eliminated. New round — describe your word in order.
+              {gameState.votingResults?.eliminatedPlayer ? (
+                <><strong>{gameState.votingResults.eliminatedPlayer.name}</strong> was eliminated. New round — describe your word in order.</>
+              ) : (
+                <>It&apos;s a tie! No one was eliminated. New round — describe your word in order.</>
+              )}
             </div>
           )}
           <div className="mb-6 text-center">

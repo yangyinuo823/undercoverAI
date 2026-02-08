@@ -625,6 +625,10 @@ io.on('connection', (socket) => {
             const currentGame = gameManager.getGame(roomCode)!;
             const isNewCycle = results.outcome === 'new_cycle';
             if (isNewCycle) {
+              io.to(roomCode).emit('voting-results', {
+                ...results,
+                phase: GamePhase.RESULTS,
+              });
               const firstTurnId = gameManager.getCurrentTurnPlayerId(roomCode);
               const nextTurnId = gameManager.getNextTurnPlayerId(roomCode);
               const firstPlayer = firstTurnId ? currentGame.players.get(firstTurnId) : null;
@@ -778,7 +782,12 @@ io.on('connection', (socket) => {
               const isNewCycle = results.outcome === 'new_cycle';
 
               if (isNewCycle) {
-                // Phase already DESCRIPTION from startNewCycle - do NOT emit voting-results as game over
+                // Emit voting-results first so client can show "No one eliminated (tie)" or "X was eliminated" and vote counts
+                io.to(roomCode).emit('voting-results', {
+                  ...results,
+                  phase: GamePhase.RESULTS,
+                });
+                // Then start new round (phase already DESCRIPTION from startNewCycle)
                 const firstTurnId = gameManager.getCurrentTurnPlayerId(roomCode);
                 const nextTurnId = gameManager.getNextTurnPlayerId(roomCode);
                 const firstPlayer = firstTurnId ? currentGame.players.get(firstTurnId) : null;

@@ -2,6 +2,8 @@
 
 A multiplayer social deduction game where humans play against an AI player powered by Google Gemini. Can you identify the Undercover? Can you spot the AI? Even if you lose, you might still win!
 
+> **Branch: v3_multiter** — In-turn descriptions, free discussion, and multi-cycle voting.
+
 ## 🎮 Game Overview
 
 **UndercoverAI** is a modern take on the classic "Undercover" party game, featuring an AI player that tries to blend in with humans.
@@ -12,18 +14,24 @@ A multiplayer social deduction game where humans play against an AI player power
 - **Secret Words**: 3 players are **Civilians** sharing one word (e.g., "Coffee"), 1 player is the **Undercover** with a similar word (e.g., "Tea")
 - **Hidden Roles**: You only know your word, not whether you're a Civilian or Undercover!
 
-### Game Flow
+### Game Flow (per round)
 
-1. **Description Phase**: Each player describes their word without saying it directly
-2. **Voting Phase**: Vote for who you think has a different word (the Undercover)
-3. **Results**: See who was eliminated and all roles revealed
+1. **Description Phase (in-turn)** — Players describe their word **one at a time** in a fixed order. When it's your turn, describe your word without saying it directly; the AI speaks when it's its turn.
+2. **Discussion Phase** — Free chat before voting. Everyone can message freely to share reads, suspicions, and debate who the Undercover might be.
+3. **Voting Phase** — Vote for who you think has the different word (the Undercover).
+4. **Results** — See who was eliminated and who voted for whom. Then:
+   - **If Undercover is voted out** → Civilians win! Game ends.
+   - **If a Civilian is voted out** → The game continues with the remaining players. A new round starts (Round 2, 3, …) back at the Description phase.
+   - **If only 1 Civilian remains** → Undercover wins! Game ends.
+
+**Eliminated players** are muted for the rest of the game and cannot describe, chat, or vote in later rounds.
 
 ### 🏆 Winning Conditions
 
 | Role | Win Condition |
 |------|---------------|
 | **Civilians** | Vote out the Undercover |
-| **Undercover** | Survive the vote (get Civilians eliminated) |
+| **Undercover** | Survive until only 1 Civilian remains (or tie) |
 
 ### 🎯 Second Chance - Guess the AI!
 
@@ -31,7 +39,7 @@ A multiplayer social deduction game where humans play against an AI player power
 
 If you're on the losing team, you get one chance to guess which player was the AI. Guess correctly, and you redeem yourself as a winner!
 
-This adds an extra layer of strategy - pay attention to how everyone describes and votes. The AI tries hard to blend in, but can you spot patterns in its behavior?
+This adds an extra layer of strategy - pay attention to how everyone describes, discusses, and votes. The AI tries hard to blend in, but can you spot patterns in its behavior?
 
 ## 📦 Installation
 
@@ -89,18 +97,19 @@ You should see: `Server running on port 3001`
 npm run dev
 ```
 
-The app will open at `http://localhost:5173` (or similar port shown in terminal)
+The app will open at `http://localhost:3000` (or similar port shown in terminal)
 
 ## 🎲 How to Play
 
 1. **Open the app** in 3 different browser tabs (or have 3 friends open the URL)
 2. **Enter your name** and create a room (first player) or join with the room code (other players)
-3. **Wait** for all 3 human players to join
+3. **Wait** for all 3 human players to join (names are hidden in the lobby)
 4. **Click "Start Game"** when the room is full
-5. **Describe your word** without saying it directly, then press Enter
-6. **Vote** for who you think has a different word
-7. **See results** - did you find the Undercover?
-8. **Guess the AI** if you lost - get a second chance to win!
+5. **Description phase (in-turn)** — Wait for your turn, then describe your word without saying it directly and press Enter. All 4 players speak in order.
+6. **Discussion phase** — Chat freely with others to share suspicions and debate who might be the Undercover.
+7. **Voting phase** — Vote for who you think has the different word. Only alive players can vote; vote targets are alive players only.
+8. **See results** — Who was eliminated? Who voted for whom? If a Civilian was voted out, a new round begins (Round 2, 3, …) with the remaining players.
+9. **Guess the AI** if you lost — get a second chance to win!
 
 ## 🛠️ Tech Stack
 
@@ -128,9 +137,9 @@ undercoverAI/
 ## 🤖 About the AI Player
 
 The AI player uses Google Gemini to:
-- Generate human-like descriptions of its word
-- Analyze other players' descriptions to vote strategically
-- Blend in with random personalities and text styles each game
+- Generate human-like descriptions of its word (in turn, based on previous players' descriptions)
+- Participate in free discussion (as Civilian: share suspicions; as Undercover: mislead)
+- Analyze descriptions and discussion to vote strategically
 
 The AI's name is randomized each game, so you never know who it is until the end!
 

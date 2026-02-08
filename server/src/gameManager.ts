@@ -1,4 +1,5 @@
 // Game state management
+import { getRandomWordPair } from './wordPairs';
 
 export enum Role {
   CIVILIAN = 'Civilian',
@@ -101,8 +102,6 @@ export interface PlayerGameView {
   }[];
 }
 
-const CIVILIAN_WORD = 'Coffee';
-const UNDERCOVER_WORD = 'Tea';
 const AI_PLAYER_ID = 'AI_PLAYER';
 
 // Pool of random names for players
@@ -181,6 +180,9 @@ class GameManager {
       return null;
     }
 
+    // Pick a random word pair for this game
+    const [civilianWord, undercoverWord] = getRandomWordPair();
+
     // Create 4 roles: 3 civilians, 1 undercover
     const roles: Role[] = shuffleArray([Role.CIVILIAN, Role.CIVILIAN, Role.CIVILIAN, Role.UNDERCOVER]);
     
@@ -207,7 +209,7 @@ class GameManager {
         isHuman: true,
         isAI: false,
         role: role,
-        word: role === Role.CIVILIAN ? CIVILIAN_WORD : UNDERCOVER_WORD,
+        word: role === Role.CIVILIAN ? civilianWord : undercoverWord,
         description: '',
         voteTarget: '',
         hasSubmittedDescription: false,
@@ -223,7 +225,7 @@ class GameManager {
       isHuman: false,
       isAI: true,
       role: aiRole,
-      word: aiRole === Role.CIVILIAN ? CIVILIAN_WORD : UNDERCOVER_WORD,
+      word: aiRole === Role.CIVILIAN ? civilianWord : undercoverWord,
       description: '',
       voteTarget: '',
       hasSubmittedDescription: false,
@@ -243,8 +245,8 @@ class GameManager {
       phase: GamePhase.DESCRIPTION,
       players,
       aiPlayerId: AI_PLAYER_ID,
-      civilianWord: CIVILIAN_WORD,
-      undercoverWord: UNDERCOVER_WORD,
+      civilianWord,
+      undercoverWord,
       aiPersona,
       descriptionTurnOrder,
       descriptionTurnIndex: 0,
@@ -257,7 +259,7 @@ class GameManager {
     this.games.set(roomCode, gameState);
     
     console.log(`Game started for room ${roomCode}`);
-    console.log(`AI (${aiName}) is ${aiRole} with word "${aiRole === Role.CIVILIAN ? CIVILIAN_WORD : UNDERCOVER_WORD}"`);
+    console.log(`AI (${aiName}) is ${aiRole} with word "${aiRole === Role.CIVILIAN ? civilianWord : undercoverWord}"`);
     console.log(`AI Persona: ${aiPersona.personality.name}, Strategy: ${aiPersona.strategy.name}, Quirks: ${aiPersona.quirks.length}`);
     
     return gameState;
@@ -535,15 +537,18 @@ class GameManager {
       }
     }
 
-    // Find player with most votes
+    // Find max vote count and all playerIds that have it (for tie detection)
     let maxVotes = 0;
-    let eliminatedId: string | null = null;
-    for (const [playerId, votes] of voteCounts) {
-      if (votes > maxVotes) {
-        maxVotes = votes;
-        eliminatedId = playerId;
-      }
+    for (const votes of voteCounts.values()) {
+      if (votes > maxVotes) maxVotes = votes;
     }
+    const playersWithMaxVotes = maxVotes > 0
+      ? Array.from(voteCounts.entries()).filter(([, v]) => v === maxVotes).map(([id]) => id)
+      : [];
+
+    // Tie: more than one player with max votes, or no votes at all → no elimination, new round
+    const isTie = playersWithMaxVotes.length !== 1;
+    const eliminatedId: string | null = isTie ? null : playersWithMaxVotes[0];
 
     const eliminatedPlayer = eliminatedId ? game.players.get(eliminatedId) : null;
     const undercoverPlayer = Array.from(game.players.values()).find(p => p.role === Role.UNDERCOVER)!;
@@ -554,7 +559,13 @@ class GameManager {
     let civiliansWon: boolean;
     let outcome: VotingOutcome;
 
-    if (eliminatedPlayer?.role === Role.UNDERCOVER) {
+    if (isTie) {
+      // No one eliminated (tie or no votes): start new round with same players
+      civiliansWon = false;
+      outcome = 'new_cycle';
+      this.startNewCycle(roomCode);
+      // Do not change alivePlayerIds
+    } else if (eliminatedPlayer?.role === Role.UNDERCOVER) {
       // Undercover eliminated: civilians win, game ends
       civiliansWon = true;
       outcome = 'game_over';
@@ -574,7 +585,7 @@ class GameManager {
         outcome = 'new_cycle';
       }
     } else {
-      // No one eliminated (tie) or invalid
+      // Invalid (e.g. eliminatedId not in game): treat as game over
       civiliansWon = false;
       outcome = 'game_over';
     }
@@ -737,4 +748,4 @@ class GameManager {
 }
 
 export const gameManager = new GameManager();
-export { AI_PLAYER_ID, CIVILIAN_WORD, UNDERCOVER_WORD };
+export { AI_PLAYER_ID };

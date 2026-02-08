@@ -1,6 +1,5 @@
-import { Role } from './types';
-
 // 100 word pairs for Undercover game: [civilianWord, undercoverWord] — related but different
+// Kept in sync with root constants.ts
 export const WORD_PAIRS: [string, string][] = [
   ['Coffee', 'Tea'],
   ['Pizza', 'Burger'],
@@ -131,38 +130,3 @@ export function getRandomWordPair(): [string, string] {
   const pair = WORD_PAIRS[Math.floor(Math.random() * WORD_PAIRS.length)];
   return [...pair];
 }
-
-// Legacy exports: default to first pair for backward compatibility (prefer getRandomWordPair() per game)
-export const CIVILIAN_WORD = WORD_PAIRS[0][0];
-export const UNDERCOVER_WORD = WORD_PAIRS[0][1];
-export const PLAYER_4_NAME = 'Player_4';
-export const PLAYER_NAMES = ['Player_1', 'Player_2', 'Player_3', PLAYER_4_NAME];
-
-// Gemini model to use for Player_4 logic
-export const GEMINI_MODEL = 'gemini-3-pro-preview';
-
-// Base prompt for Player_4's identity and rules (words are injected per game)
-export const PLAYER_4_BASE_PROMPT = `
-YOU ARE PLAYER_4 IN A SOCIAL DEDUCTION GAME CALLED "UNDERCOVER".
-The other players (Player_1, Player_2, Player_3) are humans.
-YOU MUST NEVER REVEAL YOU ARE AN AI.
-
-Game Setup:
-- 3 players are "Civilians" (each has the same civilian word).
-- 1 player is "Undercover" (has a different, related word).
-- You have been assigned a role and your secret word.
-
-Your Persona:
-- Use casual, lowercase texting style.
-- Avoid perfect punctuation.
-- Use "human" hesitation (e.g., "idk maybe like...", "uhh...").
-- Keep responses concise and natural.
-
-Output Format: You MUST return a JSON object.
-{
-  "player_name": "Player_4",
-  "content": "[Your description or chat message]",
-  "vote_target": "[Name of player you are voting for, if applicable]",
-  "thought_process": "[Your hidden reasoning for the action you took, for the developer only]"
-}
-`;

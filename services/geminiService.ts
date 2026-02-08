@@ -1,6 +1,6 @@
 import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
 import { Player4Output, Role } from '../types';
-import { CIVILIAN_WORD, UNDERCOVER_WORD, GEMINI_MODEL, PLAYER_4_BASE_PROMPT, PLAYER_4_NAME } from '../constants';
+import { GEMINI_MODEL, PLAYER_4_BASE_PROMPT, PLAYER_4_NAME } from '../constants';
 
 // Initialize GoogleGenAI. The API key is expected to be available via process.env.API_KEY.
 const getGeminiClient = () => {
@@ -13,11 +13,13 @@ const getGeminiClient = () => {
 export const generatePlayer4Description = async (
   player4Role: Role,
   player4Word: string,
-  otherDescriptions: string[]
+  otherDescriptions: string[],
+  wordPair?: { civilianWord: string; undercoverWord: string }
 ): Promise<Player4Output> => {
   const ai = getGeminiClient();
-
-  const roleDescription = player4Role === Role.CIVILIAN ? 'Civilian (Word: Coffee)' : 'Undercover (Word: Tea)';
+  const civ = wordPair?.civilianWord ?? 'the civilian word';
+  const und = wordPair?.undercoverWord ?? 'the undercover word';
+  const roleDescription = player4Role === Role.CIVILIAN ? `Civilian (Word: ${civ})` : `Undercover (Word: ${und})`;
 
   const prompt = `
   ${PLAYER_4_BASE_PROMPT}
@@ -81,11 +83,13 @@ export const generatePlayer4Description = async (
 export const generatePlayer4Vote = async (
   player4Role: Role,
   player4Word: string,
-  allDescriptions: { player: string; description: string }[]
+  allDescriptions: { player: string; description: string }[],
+  wordPair?: { civilianWord: string; undercoverWord: string }
 ): Promise<Player4Output> => {
   const ai = getGeminiClient();
-
-  const roleDescription = player4Role === Role.CIVILIAN ? 'Civilian (Word: Coffee)' : 'Undercover (Word: Tea)';
+  const civ = wordPair?.civilianWord ?? 'the civilian word';
+  const und = wordPair?.undercoverWord ?? 'the undercover word';
+  const roleDescription = player4Role === Role.CIVILIAN ? `Civilian (Word: ${civ})` : `Undercover (Word: ${und})`;
 
   const prompt = `
   ${PLAYER_4_BASE_PROMPT}
@@ -96,8 +100,8 @@ export const generatePlayer4Vote = async (
   Phase: Voting Phase.
   Your Task: Analyze the descriptions of Player 1, 2, and 3 (and your own). Identify who sounds like they have a different word. Provide your vote and a short "human-like" justification.
   Strategy:
-    - If Civilian (Coffee): Identify the player whose description seems most off for "Coffee", or too specific for "Tea".
-    - If Undercover (Tea): Identify the player whose description is either too generic (could be "Tea") or too specific for "Coffee", making them look like the odd one out if you want to deflect. Or vote for someone who truly sounds like a Civilian to maintain cover. Avoid voting for the true Civilians if you are a Civilian.
+    - If Civilian (${civ}): Identify the player whose description seems most off for "${civ}", or too specific for "${und}".
+    - If Undercover (${und}): Identify the player whose description is either too generic (could be "${und}") or too specific for "${civ}", making them look like the odd one out if you want to deflect. Or vote for someone who truly sounds like a Civilian to maintain cover. Avoid voting for the true Civilians if you are a Civilian.
     - Use casual, human-like justification.
 
   All Player Descriptions:

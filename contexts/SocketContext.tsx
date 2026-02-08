@@ -376,7 +376,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         descriptionTranscript: [],
         currentTurnPlayerId: data.currentTurnPlayerId ?? null,
         nextTurnPlayerId: data.nextTurnPlayerId ?? null,
-        votingResults: data.eliminatedPlayer ? { outcome: 'new_cycle', eliminatedPlayer: data.eliminatedPlayer } as any : prev.votingResults,
+        votingResults: { outcome: 'new_cycle' as const, eliminatedPlayer: data.eliminatedPlayer ?? null, voteCounts: (data as any).voteCounts ?? prev.votingResults?.voteCounts ?? [] },
         players: prev.players.map(p => ({ ...p, isEliminated: !alive.has(p.id) })),
       }));
     });
