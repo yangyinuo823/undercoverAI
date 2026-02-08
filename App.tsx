@@ -593,16 +593,18 @@ const App: React.FC = () => {
   // Show Lobby if room is not full yet OR game hasn't started
   if (!roomState.isRoomFull || !gameState.isGameStarted) {
     return (
-      <div className="min-h-screen flex flex-col items-center p-4 bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200">
-        <header className="w-full max-w-4xl text-center py-6">
-          <h1 className="text-4xl font-extrabold text-blue-700 dark:text-blue-400">
-            Undercover
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-2">A Social Deduction Game with AI</p>
-        </header>
-        <main className="flex-grow w-full max-w-2xl p-6 bg-white dark:bg-gray-800 rounded-lg shadow-xl">
-          <Lobby />
-        </main>
+      <div className="min-h-screen flex flex-col items-center p-6 bg-gradient-to-br from-slate-100 via-gray-50 to-slate-200 dark:from-slate-900 dark:via-gray-900 dark:to-slate-800 text-gray-800 dark:text-gray-200">
+        <div className="w-full max-w-6xl mx-auto flex flex-col flex-grow rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <header className="w-full text-center py-6">
+            <h1 className="text-4xl font-extrabold text-blue-700 dark:text-blue-400">
+              Undercover
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-2">A Social Deduction Game with AI</p>
+          </header>
+          <main className="flex-grow w-full max-w-2xl mx-auto p-6 bg-white dark:bg-gray-800 rounded-lg shadow-xl">
+            <Lobby />
+          </main>
+        </div>
       </div>
     );
   }
@@ -1108,23 +1110,25 @@ const App: React.FC = () => {
 
   // Show multiplayer game when game has started
   return (
-    <div className="min-h-screen flex flex-col items-center p-4 bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200">
-      <header className="w-full max-w-4xl text-center py-6">
-        <h1 className="text-4xl font-extrabold text-blue-700 dark:text-blue-400">Undercover</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400">Room: {roomState.roomCode}</p>
-      </header>
-      <main className="flex-grow w-full max-w-4xl p-6 bg-white dark:bg-gray-800 rounded-lg shadow-xl">
-        {/* Your Secret Word - show during gameplay phases */}
-        {(gameState.phase === 'description' || gameState.phase === 'discussion' || gameState.phase === 'voting') && (
-          <div className="mb-6 p-4 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg text-white">
-            <h2 className="text-xl font-bold mb-2">Your Secret Word</h2>
-            <div className="text-center">
-              <span className="text-4xl font-bold">"{gameState.myWord}"</span>
+    <div className="min-h-screen flex flex-col items-center p-6 bg-gradient-to-br from-slate-100 via-gray-50 to-slate-200 dark:from-slate-900 dark:via-gray-900 dark:to-slate-800 text-gray-800 dark:text-gray-200">
+      <div className="w-full max-w-6xl mx-auto flex flex-col flex-grow rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <header className="w-full text-center py-6">
+          <h1 className="text-4xl font-extrabold text-blue-700 dark:text-blue-400">Undercover</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Room: {roomState.roomCode}</p>
+        </header>
+        <main className="flex-grow w-full max-w-4xl mx-auto p-6 bg-white dark:bg-gray-800 rounded-lg shadow-xl">
+          {/* Your Secret Word - show during gameplay phases */}
+          {(gameState.phase === 'description' || gameState.phase === 'discussion' || gameState.phase === 'voting') && (
+            <div className="mb-6 p-4 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg text-white">
+              <h2 className="text-xl font-bold mb-2">Your Secret Word</h2>
+              <div className="text-center">
+                <span className="text-4xl font-bold">"{gameState.myWord}"</span>
+              </div>
             </div>
-          </div>
-        )}
-        {renderMultiplayerGame()}
-      </main>
+          )}
+          {renderMultiplayerGame()}
+        </main>
+      </div>
     </div>
   );
 };

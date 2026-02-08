@@ -133,11 +133,11 @@ function getRandomNames(count: number): string[] {
 // AI Personality and Strategy definitions
 const PERSONALITY_STYLES = [
   { name: 'confident', description: 'Confident and direct. Clear, assertive responses.', examples: ['definitely', 'its basically', 'you know'] },
-  { name: 'nervous', description: 'A bit uncertain. Uses hedging language.', examples: ['umm maybe', 'not sure but', 'could be wrong'] },
+  { name: 'cautious', description: 'Cautious but clear. You consider options but state your view directly.', examples: ["I'd say", 'probably', 'could be'] },
   { name: 'playful', description: 'Playful and joking. Uses humor.', examples: ['lol', 'haha', 'bruh'] },
   { name: 'analytical', description: 'Thoughtful and analytical. Reasons things out.', examples: ['thinking about it', 'if i had to describe', 'the way i see it'] },
   { name: 'brief', description: 'Very few words. Short and to the point.', examples: ['its warm', 'morning thing'] },
-  { name: 'normal', description: 'Plain and straightforward. No strong personality.', examples: ['its like', 'kind of', 'i guess'] },
+  { name: 'normal', description: 'Plain and straightforward. No strong personality.', examples: ['its like', 'kind of', 'its basically'] },
 ];
 
 const TEXT_QUIRKS = [
@@ -145,7 +145,7 @@ const TEXT_QUIRKS = [
   'use ... for pauses occasionally',
   'make small typos rarely',
   'start sentences lowercase sometimes',
-  'use filler words (like, um)',
+  'short, direct phrasing',
   'use abbreviations rarely (tbh, ngl)',
 ];
 
