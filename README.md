@@ -1,8 +1,8 @@
 # 🕵️ UndercoverAI
 
-A multiplayer social deduction game where humans play against an AI player powered by Google Gemini. Can you identify the Undercover? Can you spot the AI? Even if you lose, you might still win!
+A multiplayer social deduction game where humans play against an AI player powered by Google Gemini. Can you identify the Undercover? Can you spot the AI? 
 
-> **Branch: v3b_updateUI** — In-turn descriptions, free discussion, multi-cycle voting, and **all human players** join the "Guess the AI" phase (not just the losing team).
+
 
 ## 🎮 Game Overview
 
@@ -41,9 +41,12 @@ A multiplayer social deduction game where humans play against an AI player power
 After the round ends (Civilians win or Undercover wins), **all human players** — not just the losing team — take part in the "Guess the AI" phase. Each player submits who they think the AI player is. The AI's identity is revealed only after everyone has guessed.
 
 - **Round outcome**: Civilians win (Undercover voted out) or Undercover wins (survived). You see whether you won or lost the Undercover game.
-- **AI guess**: All humans then guess who the AI was. Correct guessers are credited as "AI Spotters" regardless of whether they won or lost the round.
+- **AI guess**: All humans then gsuess who the AI was. Correct guessers are credited as "AI Spotters" regardless of whether they won or lost the round.
 
 This adds an extra layer of strategy — pay attention to how everyone describes, discusses, and votes. The AI tries hard to blend in; can you spot it?
+
+## Play it without installation!
+This game have been deployed in a server. Simply open this public URL for playing! ```http://45.32.123.219:3000/```
 
 ## 📦 Installation
 
