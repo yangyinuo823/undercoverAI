@@ -650,9 +650,9 @@ const App: React.FC = () => {
                 Next: {amINext ? 'You' : gameState.players.find(p => p.id === gameState.nextTurnPlayerId)?.name ?? '—'}
               </span>
             )}
-            {gameState.aiThinking && (
+            {/* {gameState.aiThinking && (
               <span className="text-yellow-600 dark:text-yellow-400 animate-pulse">{currentTurnPlayer?.name ?? 'Someone'} is thinking...</span>
-            )}
+            )} */}
           </div>
 
           {/* Transcript so far — in original speaking order (descriptionTurnOrder) */}

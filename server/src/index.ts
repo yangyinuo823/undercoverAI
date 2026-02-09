@@ -430,11 +430,22 @@ io.on('connection', (socket) => {
         nextPlayerId = gameManager.advanceDescriptionTurn(roomCode);
         continue;
       }
+      // io.to(roomCode).emit('description-turn-started', {
+      //   currentTurnPlayerId: AI_PLAYER_ID,
+      //   currentTurnPlayerName: game.players.get(AI_PLAYER_ID)?.name,
+      //   nextTurnPlayerId: null,
+      //   nextTurnPlayerName: null,
+      //   transcript: gameManager.getDescriptionsSoFar(roomCode),
+      //   aiThinking: true,
+      // });
+
+      const afterAiId = gameManager.getNextTurnPlayerId(roomCode);
+      const afterAiPlayer = afterAiId ? game.players.get(afterAiId) : null;
       io.to(roomCode).emit('description-turn-started', {
         currentTurnPlayerId: AI_PLAYER_ID,
         currentTurnPlayerName: game.players.get(AI_PLAYER_ID)?.name,
-        nextTurnPlayerId: null,
-        nextTurnPlayerName: null,
+        nextTurnPlayerId: afterAiId ?? null,
+        nextTurnPlayerName: afterAiPlayer?.name ?? null,
         transcript: gameManager.getDescriptionsSoFar(roomCode),
         aiThinking: true,
       });
