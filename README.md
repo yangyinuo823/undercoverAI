@@ -2,6 +2,8 @@
 
 A multiplayer social deduction game where humans play against an AI player powered by Google Gemini. Can you identify the Undercover? Can you spot the AI? 
 
+## Demo
+[![Undercover AI - A party game with a hidden AI player](https://www.youtube.com/watch?v=2OEgpCYKx-Y&t=47s)](https://www.youtube.com)
 
 
 ## 🎮 Game Overview
