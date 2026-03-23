@@ -48,14 +48,14 @@ After the round ends (Civilians win or Undercover wins), **all human players** �
 This adds an extra layer of strategy — pay attention to how everyone describes, discusses, and votes. The AI tries hard to blend in; can you spot it?
 
 ## Play it without installation!
-This game have been deployed in a server. Simply open this public URL for playing! ```http://45.32.123.219:3000/```
+This game have been deployed in a server. Simply open this public URL for playing! [Play Link](http://45.32.123.219:3000/)
 
 ## 📦 Installation
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) (v18 or higher recommended)
-- A [Google Gemini API Key](https://aistudio.google.com/app/apikey)
+- ```Node.js``` (v18 or higher recommended)
+- A Google Gemini API Key
 
 ### Step 1: Clone the Repository
 
