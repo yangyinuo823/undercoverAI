@@ -5,6 +5,9 @@ A multiplayer social deduction game where humans play against an AI player power
 ## Demo
 [![Undercover AI - A party game with a hidden AI player](https://img.youtube.com)](https://www.youtube.com/watch?v=2OEgpCYKx-Y&t=47s)
 
+## Play Link
+[Play Link](http://45.32.123.219:3000/) (This link could be broker due to server outage)
+
 
 ## 🎮 Game Overview
 
